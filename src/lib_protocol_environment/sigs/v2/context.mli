@@ -41,6 +41,14 @@ module type VIEW = sig
   (** The type for context trees. *)
   type tree
 
+  type tree_stats = {
+    nodes : int;
+    leafs : int;
+    skips : int;
+    depth : int;
+    width : int;
+    }
+
   (** {2 Getters} *)
 
   (** [mem t k] is an Lwt promise that resolves to [true] iff [k] is bound
@@ -63,6 +71,10 @@ module type VIEW = sig
       [offset] and [length] are used for pagination. *)
   val list :
     t -> ?offset:int -> ?length:int -> key -> (string * tree) list Lwt.t
+
+  val length : t -> key -> int option Lwt.t
+
+  val stats : t -> tree_stats Lwt.t
 
   (** {2 Setters} *)
 
@@ -170,6 +182,7 @@ module Tree :
      and type key := key
      and type value := value
      and type tree := tree
+     and type tree_stats := tree_stats
 
 val register_resolver :
   'a Base58.encoding -> (t -> string -> 'a list Lwt.t) -> unit

@@ -50,6 +50,7 @@ module type S = sig
          and type key := key
          and type value := value
          and type tree := tree
+         and type tree_stats := tree_stats
 
     val pp : Format.formatter -> tree -> unit
   end

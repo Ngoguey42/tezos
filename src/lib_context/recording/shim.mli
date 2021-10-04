@@ -23,55 +23,13 @@
 (*                                                                           *)
 (*****************************************************************************)
 
-type t = {
-  verbosity : [`Default | `Info | `Debug];
-  index_log_size : int option;
-  auto_flush : int option;
-  record_raw_actions_trace : [`No | `Yes of string];
-  record_stats_trace : [`No | `Yes of string];
-  stats_trace_message : string option;
-}
+(** Constructor of a [Tezos_context] wrapper that notifies the [Recorders]
+    before and after each function call. *)
+module Make : functor
+  (Impl : Tezos_context_sigs.Context.S)
+  (Recorders : sig
+     module type RECORDER = Recorder.S with module Impl = Impl
 
-let default =
-  {
-    verbosity = `Default;
-    index_log_size = None;
-    auto_flush = None;
-    record_raw_actions_trace = `No;
-    record_stats_trace = `No;
-    stats_trace_message = None;
-  }
-
-let max_verbosity a b =
-  match (a, b) with
-  | (`Debug, _) | (_, `Debug) -> `Debug
-  | (`Info, _) | (_, `Info) -> `Info
-  | _ -> `Default
-
-let v =
-  match Unix.getenv "TEZOS_CONTEXT" with
-  | exception Not_found -> default
-  | v ->
-      List.fold_left
-        (fun acc s ->
-          match String.trim s with
-          | "v" | "verbose" ->
-              {acc with verbosity = max_verbosity acc.verbosity `Info}
-          | "vv" -> {acc with verbosity = `Debug}
-          | v -> (
-              match String.split '=' v |> List.map String.trim with
-              | ["index-log-size"; n] ->
-                  {acc with index_log_size = int_of_string_opt n}
-              | ["auto-flush"; n] -> {acc with auto_flush = int_of_string_opt n}
-              | ["actions-trace-record-directory"; path] ->
-                  {acc with record_raw_actions_trace = `Yes path}
-              | ["stats-trace-record-directory"; path] ->
-                  {acc with record_stats_trace = `Yes path}
-              | _ -> acc))
-        default
-        (String.split ',' v)
-
-let v =
-  match Unix.getenv "STATS_TRACE_MESSAGE" with
-  | exception Not_found -> v
-  | msg -> {v with stats_trace_message = Some msg}
+     val l : (module RECORDER) list
+   end)
+  -> Tezos_context_sigs.Context.S

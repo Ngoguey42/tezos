@@ -23,55 +23,42 @@
 (*                                                                           *)
 (*****************************************************************************)
 
-type t = {
-  verbosity : [`Default | `Info | `Debug];
-  index_log_size : int option;
-  auto_flush : int option;
-  record_raw_actions_trace : [`No | `Yes of string];
-  record_stats_trace : [`No | `Yes of string];
-  stats_trace_message : string option;
-}
+(* Using [exception] instead of [error] because all occurences are in direct
+   code *)
+exception Recording_io_error of string
 
-let default =
-  {
-    verbosity = `Default;
-    index_log_size = None;
-    auto_flush = None;
-    record_raw_actions_trace = `No;
-    record_stats_trace = `No;
-    stats_trace_message = None;
-  }
+exception Suspicious_trace_file of string
 
-let max_verbosity a b =
-  match (a, b) with
-  | (`Debug, _) | (_, `Debug) -> `Debug
-  | (`Info, _) | (_, `Info) -> `Info
-  | _ -> `Default
+exception Stats_trace_without_init
 
-let v =
-  match Unix.getenv "TEZOS_CONTEXT" with
-  | exception Not_found -> default
-  | v ->
-      List.fold_left
-        (fun acc s ->
-          match String.trim s with
-          | "v" | "verbose" ->
-              {acc with verbosity = max_verbosity acc.verbosity `Info}
-          | "vv" -> {acc with verbosity = `Debug}
-          | v -> (
-              match String.split '=' v |> List.map String.trim with
-              | ["index-log-size"; n] ->
-                  {acc with index_log_size = int_of_string_opt n}
-              | ["auto-flush"; n] -> {acc with auto_flush = int_of_string_opt n}
-              | ["actions-trace-record-directory"; path] ->
-                  {acc with record_raw_actions_trace = `Yes path}
-              | ["stats-trace-record-directory"; path] ->
-                  {acc with record_stats_trace = `Yes path}
-              | _ -> acc))
-        default
-        (String.split ',' v)
-
-let v =
-  match Unix.getenv "STATS_TRACE_MESSAGE" with
-  | exception Not_found -> v
-  | msg -> {v with stats_trace_message = Some msg}
+let prepare_trace_file prefix filename =
+  let rec mkdir_p path =
+    let exists = Sys.file_exists path in
+    let is_dir = Sys.is_directory path in
+    if exists && is_dir then ()
+    else if exists then
+      let msg =
+        Fmt.str
+          "Failed to prepare trace destination directory, '%s' is not a \
+           directory"
+          path
+      in
+      raise (Recording_io_error msg)
+    else
+      let path' = Filename.dirname path in
+      let () =
+        if path' = path then
+          raise
+            (Recording_io_error "Failed to prepare trace destination directory")
+      in
+      mkdir_p path' ;
+      Unix.mkdir path 0o755
+  in
+  mkdir_p prefix ;
+  let path = Filename.concat prefix filename in
+  let () =
+    if Sys.file_exists path then
+      let msg = Fmt.str "Failed to create trace file '%s', file exists" path in
+      raise (Recording_io_error msg)
+  in
+  path

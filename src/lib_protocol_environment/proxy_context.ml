@@ -182,6 +182,19 @@ module C = struct
   let list t ?offset ?length k =
     data_tree t >>= fun tree -> raw_list tree ?offset ?length k
 
+  let stats _ = assert false
+  let length _ = assert false
+  (* let stats _ = assert false *)
+
+  type tree_stats = {
+    nodes : int;
+    leafs : int;
+    skips : int;
+    depth : int;
+    width : int;
+    }
+
+
   let fold ?depth (t : t) root ~order ~init ~f =
     find_tree t root >>= function
     | None -> Lwt.return init
@@ -204,6 +217,10 @@ module C = struct
 
   module Tree = struct
     let pp ppf t = Local.Tree.pp ppf t.tree
+
+  let stats _ = assert false
+  let length _ = assert false
+  (* let stats _ = assert false *)
 
     let empty t = {proxy = None; path = []; tree = Local.Tree.empty t.M.local}
 

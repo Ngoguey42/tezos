@@ -125,6 +125,10 @@ let mem_tree ctxt key = Tree.mem_tree ctxt.tree (data_key key)
 let list ctxt ?offset ?length key =
   Tree.list ctxt.tree ?offset ?length (data_key key)
 
+let length ctxt key = Tree.length ctxt.tree (data_key key)
+
+let stats ctxt = Tree.stats ctxt.tree
+
 let find ctxt key = Tree.find ctxt.tree (data_key key)
 
 let raw_add ctxt key data =

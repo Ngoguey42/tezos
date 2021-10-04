@@ -77,6 +77,14 @@ module Make_tree (Store : DB) = struct
 
   type concrete = Store.Tree.concrete
 
+  type tree_stats = Store.Tree.stats = {
+    nodes : int;
+    leafs : int;
+    skips : int;
+    depth : int;
+    width : int;
+  }
+
   let rec raw_of_concrete : type a. (raw -> a) -> concrete -> a =
    fun k -> function
     | `Tree l -> raw_of_node (fun l -> k (`Tree (TzString.Map.of_seq l))) l
@@ -192,6 +200,16 @@ module Make_tree (Store : DB) = struct
             in
             raise (Context_dangling_hash str)
         | exn -> raise exn)
+
+  let length t k =
+    find_tree t k >>= function
+    | None -> Lwt.return_none
+    | Some t -> (
+        match destruct t with
+        | `Contents _ -> Lwt.return_none
+        | `Node n -> length n >|= fun i -> Some i)
+
+  let stats = stats ~force:false
 end
 
 type error += Unsupported_context_hash_version of Context_hash.Version.t

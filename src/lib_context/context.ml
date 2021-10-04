@@ -23,4 +23,64 @@
 (*                                                                           *)
 (*****************************************************************************)
 
-include Context_impl
+module type CONTEXT = Tezos_context_sigs.Context.S
+
+let make_wrapped_context () : (module CONTEXT) =
+  let module M = struct
+    module Impl : CONTEXT = Context_impl
+
+    module type RECORDER =
+      Tezos_context_recording.Recorder.S with module Impl = Impl
+  end in
+  let raw_actions_recorder : (module M.RECORDER) option =
+    match Env.(v.record_raw_actions_trace) with
+    | `No -> None
+    | `Yes prefix ->
+        (* Create a raw actions trace file in the [prefix] directory for the
+           current process. Multiple processes will record to their own files.
+        *)
+        Some
+          (module Tezos_context_recording.Raw_actions_trace_recorder.Make
+                    (M.Impl)
+                    (struct
+                      let prefix = prefix
+                    end))
+  in
+  let stats_recorder : (module M.RECORDER) option =
+    match Env.(v.record_stats_trace) with
+    | `No -> None
+    | `Yes prefix ->
+        (* The stats trace file will be created during the first call to [init].
+           Multiple processes will record to their own files. *)
+        Some
+          (module Tezos_context_recording.Stats_trace_recorder.Make
+                    (M.Impl)
+                    (struct
+                      let prefix = prefix
+
+                      let message = Env.(v.stats_trace_message)
+                    end))
+  in
+  (module Tezos_context_recording.Shim.Make
+            (M.Impl)
+            (struct
+              module type RECORDER = M.RECORDER
+
+              let l =
+                Option.to_list raw_actions_recorder
+                @ Option.to_list stats_recorder
+            end))
+
+include
+  (val match Env.(v.record_raw_actions_trace, v.record_stats_trace) with
+       | (`No, `No) -> (module Context_impl : CONTEXT)
+       | (`Yes _, _) | (_, `Yes _) ->
+           (* Enable recording for one or both of the trace kind.
+
+              Seen from outside of [Tezos_context] these recordings are
+              seemless, except for:
+              - logging of important informations,
+              - exceptions on IO error,
+              - the creation of files that will be closed [at_exit].
+           *)
+           make_wrapped_context ())

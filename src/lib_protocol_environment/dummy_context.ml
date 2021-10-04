@@ -32,6 +32,14 @@ module M = struct
 
   type tree = |
 
+  type tree_stats = {
+    nodes : int;
+    leafs : int;
+    skips : int;
+    depth : int;
+    width : int;
+  }
+
   module Tree = struct
     let pp _ _ = assert false
 
@@ -68,6 +76,10 @@ module M = struct
     let list _ ?offset:_ ?length:_ _ = assert false
 
     let fold ?depth:_ _ _ ~order:_ ~init:_ ~f:_ = assert false
+
+    let length _ = assert false
+
+    let stats _ = assert false
   end
 
   include Tree

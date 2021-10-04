@@ -115,6 +115,14 @@ module Context = struct
       }
         -> t
 
+  type tree_stats = {
+    nodes : int;
+    leafs : int;
+    skips : int;
+    depth : int;
+    width : int;
+  }
+
   let make ~kind ~impl_name ~ctxt ~ops ~equality_witness =
     Context
       {
@@ -127,6 +135,11 @@ module Context = struct
       }
 
   let mem (Context {ops = (module Ops); ctxt; _}) key = Ops.mem ctxt key
+
+  let length (Context {ops = (module Ops); ctxt; _}) = Ops.length ctxt
+
+  let stats _ =
+    Lwt.return {nodes = 0; leafs = 0; skips = 0; depth = 0; width = 0}
 
   let add (Context ({ops = (module Ops); ctxt; _} as c)) key value =
     Ops.add ctxt key value >|= fun ctxt -> Context {c with ctxt}
@@ -211,6 +224,11 @@ module Context = struct
     let is_empty (Tree {ops = (module Ops); tree; _}) = Ops.Tree.is_empty tree
 
     let mem (Tree {ops = (module Ops); tree; _}) key = Ops.Tree.mem tree key
+
+    let length (Tree {ops = (module Ops); tree; _}) = Ops.Tree.length tree
+
+    let stats _ =
+      Lwt.return {nodes = 0; leafs = 0; skips = 0; depth = 0; width = 0}
 
     let add (Tree ({ops = (module Ops); tree; _} as c)) key value =
       Ops.Tree.add tree key value >|= fun tree -> Tree {c with tree}
