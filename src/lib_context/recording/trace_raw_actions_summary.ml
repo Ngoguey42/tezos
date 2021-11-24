@@ -1,22 +1,37 @@
-(*
- * Copyright (c) 2018-2021 Tarides <contact@tarides.com>
- *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- *)
+(*****************************************************************************)
+(*                                                                           *)
+(* Open Source License                                                       *)
+(* Copyright (c) 2021-2022 Tarides <contact@tarides.com>                     *)
+(*                                                                           *)
+(* Permission is hereby granted, free of charge, to any person obtaining a   *)
+(* copy of this software and associated documentation files (the "Software"),*)
+(* to deal in the Software without restriction, including without limitation *)
+(* the rights to use, copy, modify, merge, publish, distribute, sublicense,  *)
+(* and/or sell copies of the Software, and to permit persons to whom the     *)
+(* Software is furnished to do so, subject to the following conditions:      *)
+(*                                                                           *)
+(* The above copyright notice and this permission notice shall be included   *)
+(* in all copies or substantial portions of the Software.                    *)
+(*                                                                           *)
+(* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR*)
+(* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,  *)
+(* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL   *)
+(* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER*)
+(* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING   *)
+(* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER       *)
+(* DEALINGS IN THE SOFTWARE.                                                 *)
+(*                                                                           *)
+(*****************************************************************************)
 
 (** A quick and dirty statistics computation from a raw actions trace *)
 
-module Def = Trace_definitions.Raw_actions_trace
+(** Use Stdlib.Option instead of the Tezos one. *)
+module Option = Stdlib.Option
+
+(** Use Stdlib.List instead of the Tezos one. *)
+module List = Stdlib.List
+
+module Def = Raw_actions_trace_definition
 
 module Op = struct
   module Key = struct
@@ -77,7 +92,8 @@ module Op = struct
       | `Sync
       | `Set_master
       | `Set_head
-      | `Commit_genesis
+      | `Commit_genesis_start
+      | `Commit_genesis_end
       | `Clear_test_chain
       | `Commit
       | `Commit_test_chain_genesis
@@ -88,18 +104,19 @@ module Op = struct
       | `Restore_integrity
       | `Dump_context
       | `Check_protocol_commit_consistency
-      | `Validate_context_hash_consistency_and_commit ]
+      | `Validate_context_hash_consistency_and_commit
+      | `Unhandled ]
     [@@deriving repr, enum]
 
     let all : t list = List.init (max + 1) (fun i -> of_enum i |> Option.get)
 
-    let to_string : [< t ] -> string =
+    let to_string : [< t] -> string =
      fun v ->
       match String.split_on_char '"' (Irmin.Type.to_string t v) with
-      | [ ""; s; "" ] -> s |> String.lowercase_ascii
-      | _ -> failwith "Could not encode span name to json"
+      | [""; s; ""] -> s |> String.lowercase_ascii
+      | _ -> Fmt.failwith "Could not encode span name to json"
 
-    let of_string : string -> (t, [ `Msg of string ]) result =
+    let of_string : string -> (t, [`Msg of string]) result =
      fun s ->
       let s = "\"" ^ String.capitalize_ascii s ^ "\"" in
       match Irmin.Type.of_string t s with Ok v -> Ok v | Error _ as e -> e
@@ -128,9 +145,6 @@ module Op = struct
       | Tree (Fold_step_enter _) -> `Tree_fold_step_enter
       | Tree (Fold_step_exit _) -> `Tree_fold_step_exit
       | Tree (Fold_end _) -> `Tree_fold_end
-      | Tree Shallow -> `Tree_shallow
-      | Tree To_raw -> `Tree_to_raw
-      | Tree Pp -> `Tree_pp
       | Find_tree _ -> `Find_tree
       | List _ -> `List
       | Fold_start _ -> `Fold_start
@@ -167,19 +181,16 @@ module Op = struct
       | Sync _ -> `Sync
       | Set_master _ -> `Set_master
       | Set_head _ -> `Set_head
-      | Commit_genesis _ -> `Commit_genesis
+      | Commit_genesis_start _ -> `Commit_genesis_start
+      | Commit_genesis_end _ -> `Commit_genesis_end
       | Clear_test_chain _ -> `Clear_test_chain
       | Commit _ -> `Commit
       | Commit_test_chain_genesis _ -> `Commit_test_chain_genesis
       | Init _ -> `Init
       | Patch_context_enter _ -> `Patch_context_enter
       | Patch_context_exit _ -> `Patch_context_exit
-      | Restore_context -> `Restore_context
-      | Restore_integrity -> `Restore_integrity
-      | Dump_context -> `Dump_context
-      | Check_protocol_commit_consistency -> `Check_protocol_commit_consistency
-      | Validate_context_hash_consistency_and_commit ->
-          `Validate_context_hash_consistency_and_commit
+      | Dump_context _ -> `Dump_context
+      | Unhandled _s -> `Unhandled
   end
 
   module Make_map (Val : sig
@@ -215,7 +226,7 @@ module Op_int_map = Op.Make_map (struct
   type t = int [@@deriving repr]
 end)
 
-type commit_info = { lvl : int; ops : int } [@@deriving repr]
+type commit_info = {lvl : int; ops : int} [@@deriving repr]
 
 type segment_info = {
   timestamp_before : float;
@@ -223,8 +234,9 @@ type segment_info = {
   concluding_op :
     [ `Commit of commit_info option
     | `Sync
-    | `Commit_genesis
+    | `Commit_genesis_end
     | `Checkout
+    | `Dump_context
     | `Unconcluded ];
   ops : Op_int_map.map;
 }
@@ -237,7 +249,7 @@ type file_info = {
 }
 [@@deriving repr]
 
-type t = { rws : file_info list; ros : file_info list; miscs : file_info list }
+type t = {rws : file_info list; ros : file_info list; miscs : file_info list}
 [@@deriving repr]
 
 let misc_folder =
@@ -252,41 +264,42 @@ let ops_per_segment_folder =
   let accumulate (older_segments_rev, (timestamp_before, ops)) row =
     let key = Op.Key.of_row row in
     let ops =
-      Op_int_map.update key
+      Op_int_map.update
+        key
         (function None -> Some 1 | Some i -> Some (i + 1))
         ops
     in
     (match row with
-    | Def.Init (Some true, ()) -> is_ro := true
+    | Def.Init (true, ()) -> is_ro := true
     | Init _ -> is_ro := false
-    | _ -> ());
+    | _ -> ()) ;
     let is_concluding =
       match row with
-      | Def.Commit (((_, None, _), _), { after; _ }) ->
-          `Yes (`Commit None, after)
-      | Commit (((_, Some message, _), _), { after; _ }) ->
-          let lvl, ops =
+      | Def.Commit (((_, None, _), _), {after; _}) -> `Yes (`Commit None, after)
+      | Commit (((_, Some message, _), _), {after; _}) ->
+          let (lvl, ops) =
             match
               String.split_on_char ',' message
               |> List.map String.trim
               |> List.map (String.split_on_char ' ')
             with
-            | [ [ "lvl"; lvl ]; [ "fit"; _ ]; [ "prio"; _ ]; [ ops; "ops" ] ] ->
+            | [["lvl"; lvl]; ["fit"; _]; ["prio"; _]; [ops; "ops"]] ->
                 (int_of_string lvl, int_of_string ops)
             | _ -> Fmt.failwith "Could not parse commit message: `%s`" message
           in
-          `Yes (`Commit (Some { lvl; ops }), after)
-      | Commit_genesis (_, { after; _ }) -> `Yes (`Commit_genesis, after)
-      | Checkout (_, { after; _ }) when !is_ro -> `Yes (`Checkout, after)
-      | Checkout_exn (_, { after; _ }) when !is_ro -> `Yes (`Checkout, after)
-      | Sync { after; _ } -> `Yes (`Sync, after)
+          `Yes (`Commit (Some {lvl; ops}), after)
+      | Commit_genesis_end (_, after) -> `Yes (`Commit_genesis_end, after)
+      | Checkout (_, {after; _}) when !is_ro -> `Yes (`Checkout, after)
+      | Checkout_exn (_, {after; _}) when !is_ro -> `Yes (`Checkout, after)
+      | Sync {after; _} -> `Yes (`Sync, after)
+      | Dump_context {after; _} -> `Yes (`Dump_context, after)
       | _ -> `No
     in
     match is_concluding with
     | `No -> (older_segments_rev, (timestamp_before, ops))
     | `Yes (concluding_op, t) ->
         let older_segments_rev =
-          { timestamp_before; timestamp_after = t; concluding_op; ops }
+          {timestamp_before; timestamp_after = t; concluding_op; ops}
           :: older_segments_rev
         in
         (older_segments_rev, (t, Op_int_map.empty))
@@ -308,9 +321,7 @@ let ops_per_segment_folder =
   Trace_common.Parallel_folders.folder acc0 accumulate finalise
 
 let summarise' pid (row_seq : Def.row Seq.t) =
-  let construct op_count info_per_segment =
-    { op_count; pid; info_per_segment }
-  in
+  let construct op_count info_per_segment = {op_count; pid; info_per_segment} in
   let pf0 =
     let open Trace_common.Parallel_folders in
     open_ construct |+ misc_folder |+ ops_per_segment_folder |> seal
@@ -319,8 +330,8 @@ let summarise' pid (row_seq : Def.row Seq.t) =
   |> Trace_common.Parallel_folders.finalise
 
 let parse_trace pid p =
-  Logs.app (fun l -> l "Parsing trace: %s" p);
-  let _, (), row_seq = Def.open_reader p in
+  Logs.app (fun l -> l "Parsing trace: %s" p) ;
+  let (_, (), row_seq) = Def.open_reader p in
   summarise' pid row_seq
 
 let parse_directory prefix =
@@ -338,6 +349,6 @@ let parse_directory prefix =
     List.filter (fun (p, _) -> Def.type_of_file p = `Misc) traces
     |> List.map snd
   in
-  { ros; rws; miscs }
+  {ros; rws; miscs}
 
 let summarise directory_path = parse_directory directory_path

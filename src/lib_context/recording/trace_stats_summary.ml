@@ -1,18 +1,27 @@
-(*
- * Copyright (c) 2018-2021 Tarides <contact@tarides.com>
- *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- *)
+(*****************************************************************************)
+(*                                                                           *)
+(* Open Source License                                                       *)
+(* Copyright (c) 2021-2022 Tarides <contact@tarides.com>                     *)
+(*                                                                           *)
+(* Permission is hereby granted, free of charge, to any person obtaining a   *)
+(* copy of this software and associated documentation files (the "Software"),*)
+(* to deal in the Software without restriction, including without limitation *)
+(* the rights to use, copy, modify, merge, publish, distribute, sublicense,  *)
+(* and/or sell copies of the Software, and to permit persons to whom the     *)
+(* Software is furnished to do so, subject to the following conditions:      *)
+(*                                                                           *)
+(* The above copyright notice and this permission notice shall be included   *)
+(* in all copies or substantial portions of the Software.                    *)
+(*                                                                           *)
+(* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR*)
+(* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,  *)
+(* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL   *)
+(* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER*)
+(* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING   *)
+(* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER       *)
+(* DEALINGS IN THE SOFTWARE.                                                 *)
+(*                                                                           *)
+(*****************************************************************************)
 
 (** Conversion of a [Stats_trace] to a summary that is both pretty-printable and
     exportable to JSON.
@@ -56,7 +65,8 @@ type curve = Utils.curve [@@deriving repr]
 module Span = struct
   module Key = struct
     (** The unitary operations played. We recorded the length of all of these. *)
-    type atom_seen = [`Frequent_op of Def.Frequent_op.tag | `Commit | `Close]
+    type atom_seen =
+      [`Frequent_op of Def.Frequent_op.tag | `Commit | `Close | `Dump_context]
     [@@deriving repr]
 
     (** All spans. *)
@@ -64,6 +74,7 @@ module Span = struct
       [ `Frequent_op of Def.Frequent_op.tag
       | `Commit
       | `Close
+      | `Dump_context
       | `Unseen
       | `Buildup
       | `Block ]
@@ -117,9 +128,11 @@ module Span = struct
           `Frequent_op `Checkout;
           `Frequent_op `Clear_test_chain;
           `Frequent_op `Init;
+          `Frequent_op `Restore_context;
         ]
 
-    let all_atoms_seen : atom_seen list = all_frequent_ops @ [`Commit; `Close]
+    let all_atoms_seen : atom_seen list =
+      all_frequent_ops @ [`Commit; `Close; `Dump_context]
 
     let all_atoms : t list = (all_atoms_seen :> t list) @ [`Unseen]
 
@@ -139,6 +152,7 @@ module Span = struct
         | `Frequent_op v -> to_lower_repr_string Def.Frequent_op.tag_t v
         | `Commit -> "commit"
         | `Close -> "close"
+        | `Dump_context -> "dump_context"
         | `Unseen -> "unseen"
         | `Buildup -> "buildup"
         | `Block -> "block"
@@ -148,6 +162,7 @@ module Span = struct
       match String.split_on_char '.' s with
       | ["commit"] -> Ok `Commit
       | ["close"] -> Ok `Close
+      | ["dump_context"] -> Ok `Dump_context
       | ["unseen"] -> Ok `Unseen
       | ["buildup"] -> Ok `Buildup
       | ["block"] -> Ok `Block
@@ -368,6 +383,11 @@ type block_specs = {
   tzop_count : once_per_commit_stat;
   tzop_count_tx : once_per_commit_stat;
   tzop_count_contract : once_per_commit_stat;
+  tzgas_used : once_per_commit_stat;
+  tzstorage_size : once_per_commit_stat;
+  tzcycle_snapshot : once_per_commit_stat;
+  tztime : once_per_commit_stat;
+  tzsolvetime : once_per_commit_stat;
   ev_count : once_per_commit_stat;
 }
 [@@deriving repr]
@@ -570,10 +590,12 @@ module Span_folder = struct
       | `Close pl ->
           assert ends_with_close ;
           assert (acc.commits_processed = block_count - 1) ;
-          on_atom_seen_duration32 acc `Close pl.Def.Close_op.duration
-          |> on_commit pl.Def.Close_op.after.timestamp_wall
+          on_atom_seen_duration32 acc `Close pl.Def.Stats_op.duration
+          |> on_commit pl.Def.Stats_op.after.timestamp_wall
+      | `Dump_context pl ->
+          on_atom_seen_duration32 acc `Dump_context pl.Def.Stats_op.duration
       | `Frequent_op (tag, pl) ->
-          let tag = `Frequent_op tag in
+          let tag : Span.Key.atom_seen = `Frequent_op tag in
           on_atom_seen_duration32 acc tag pl
     in
 
@@ -1118,12 +1140,17 @@ let summarise' header block_count ends_with_close (row_seq : Def.row Seq.t) =
 
   let block_specs_folder =
     let construct level_over_blocks tzop_count tzop_count_tx tzop_count_contract
-        ev_count =
+        tzgas_used tzstorage_size tzcycle_snapshot tztime tzsolvetime ev_count =
       {
         level_over_blocks;
         tzop_count;
         tzop_count_tx;
         tzop_count_contract;
+        tzgas_used;
+        tzstorage_size;
+        tzcycle_snapshot;
+        tztime;
+        tzsolvetime;
         ev_count;
       }
     in
@@ -1145,6 +1172,11 @@ let summarise' header block_count ends_with_close (row_seq : Def.row Seq.t) =
       |+ f (fun specs -> specs.tzop_count)
       |+ f (fun specs -> specs.tzop_count_tx)
       |+ f (fun specs -> specs.tzop_count_contract)
+      |+ f (fun specs -> specs.tz_gas_used)
+      |+ f (fun specs -> specs.tz_storage_size)
+      |+ f (fun specs -> specs.tz_cycle_snapshot)
+      |+ f (fun specs -> specs.tz_time)
+      |+ f (fun specs -> specs.tz_solvetime)
       |+ f (fun specs -> specs.ev_count)
       |> seal
     in
@@ -1178,7 +1210,7 @@ let summarise' header block_count ends_with_close (row_seq : Def.row Seq.t) =
       block_count;
       curves_sample_count = Conf.curves_sample_count;
       moving_average_half_life_ratio = Conf.moving_average_half_life_ratio;
-      header = header;
+      header;
       (* config = header.config; *)
       (* hostname = header.hostname; *)
       (* word_size = header.word_size; *)
@@ -1234,8 +1266,7 @@ let summarise ?info trace_stats_path =
              (fun ((commit_count, has_close) as acc) op ->
                if has_close then acc
                else
-                 (
-                   (* Fmt.epr "%a\n%!" (Repr.pp Def.row_t) op; *)
+                 ( (* Fmt.epr "%a\n%!" (Repr.pp Def.row_t) op; *)
                    (match op with
                    | `Commit _ -> commit_count + 1
                    | _ -> commit_count),

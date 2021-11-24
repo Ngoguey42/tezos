@@ -1,18 +1,27 @@
-(*
- * Copyright (c) 2018-2021 Tarides <contact@tarides.com>
- *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- *)
+(*****************************************************************************)
+(*                                                                           *)
+(* Open Source License                                                       *)
+(* Copyright (c) 2021-2022 Tarides <contact@tarides.com>                     *)
+(*                                                                           *)
+(* Permission is hereby granted, free of charge, to any person obtaining a   *)
+(* copy of this software and associated documentation files (the "Software"),*)
+(* to deal in the Software without restriction, including without limitation *)
+(* the rights to use, copy, modify, merge, publish, distribute, sublicense,  *)
+(* and/or sell copies of the Software, and to permit persons to whom the     *)
+(* Software is furnished to do so, subject to the following conditions:      *)
+(*                                                                           *)
+(* The above copyright notice and this permission notice shall be included   *)
+(* in all copies or substantial portions of the Software.                    *)
+(*                                                                           *)
+(* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR*)
+(* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,  *)
+(* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL   *)
+(* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER*)
+(* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING   *)
+(* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER       *)
+(* DEALINGS IN THE SOFTWARE.                                                 *)
+(*                                                                           *)
+(*****************************************************************************)
 
 module Seq = struct
   include Seq
@@ -36,7 +45,7 @@ module Seq = struct
       let i = ref (-1L) in
       Seq.map
         (fun v ->
-          i := Int64.succ !i;
+          i := Int64.succ !i ;
           (!i, v))
         s
 
@@ -50,7 +59,7 @@ module Seq = struct
             let rev_l = v :: rev_l in
             if is_last v then (seq, rev_l) else aux seq rev_l
       in
-      let seq, rev_l = aux seq [] in
+      let (seq, rev_l) = aux seq [] in
       (seq, List.rev rev_l)
 
     let take_until ~is_last seq =
@@ -60,43 +69,12 @@ module Seq = struct
           match seq () with
           | Seq.Nil -> None
           | Seq.Cons (v, rest) ->
-              if is_last v then Some (v, (true, rest)) else Some (v, (stop, rest))
+              if is_last v then Some (v, (true, rest))
+              else Some (v, (stop, rest))
       in
       Seq.unfold aux (false, seq)
   end
 end
-
-(* let operations_cache =
- *   lazy
- *     (Tezos_metrics.create
- *        Filename.(concat (get_temp_dir_name ()) "tzstats-cache"))
- *
- * let operations_of_block_level i =
- *   Tezos_metrics.fetch (Lazy.force operations_cache) i *)
-
-(* (\** An [Iterator.t] is a non-empty [Seq.t] where the head is accessible and the
- *     tail is functional. *\)
- * module Iterator : sig
- *   type 'a t
- *
- *   val create : 'a Seq.t -> 'a t option
- *   val head : 'a t -> 'a
- *   val tail : 'a t -> 'a t option
- * end = struct
- *   type 'a t = { head : 'a; tail : 'a Seq.node Lazy.t }
- *
- *   let create seq =
- *     match seq () with
- *     | Seq.Nil -> None
- *     | Cons (head, tail) -> Some { head; tail = Lazy.from_fun tail }
- *
- *   let head { head; _ } = head
- *
- *   let tail { tail; _ } =
- *     match Lazy.force tail with
- *     | Seq.Nil -> None
- *     | Cons (head, tail) -> Some { head; tail = Lazy.from_fun tail }
- * end *)
 
 module Parallel_folders = struct
   type ('row, 'acc, 'v) folder = {
@@ -105,7 +83,7 @@ module Parallel_folders = struct
     finalise : 'acc -> 'v;
   }
 
-  let folder acc accumulate finalise = { acc; accumulate; finalise }
+  let folder acc accumulate finalise = {acc; accumulate; finalise}
 
   type ('res, 'row, 'v) folders =
     | F0 : ('res, 'row, 'res) folders
@@ -132,7 +110,7 @@ module Parallel_folders = struct
 
   let seal : type res row f. (res, row, f, res) open_t -> (res, row) t =
    fun open_t ->
-    let constructor, folders = open_t F0 in
+    let (constructor, folders) = open_t F0 in
     T (constructor, folders)
 
   let accumulate : type res row. (res, row) t -> row -> (res, row) t =
@@ -146,9 +124,9 @@ module Parallel_folders = struct
           let t' = aux t in
           (* Avoid reallocating [F1] and [folder] when possible. *)
           match (acc == acc', t == t') with
-          | true, true -> f
-          | true, false -> F1 (folder, t')
-          | false, (true | false) -> F1 ({ folder with acc = acc' }, t'))
+          | (true, true) -> f
+          | (true, false) -> F1 (folder, t')
+          | (false, (true | false)) -> F1 ({folder with acc = acc'}, t'))
     in
     let folders = aux folders in
     T (constructor, folders)

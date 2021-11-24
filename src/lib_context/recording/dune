@@ -22,7 +22,7 @@ stats_trace_recorder
 trace_common
 trace_auto_file_format
 trace_auto_file_format_intf
-; trace_raw_actions_summary
+ trace_raw_actions_summary
 trace_stats_summary
 ; trace_stats_summary_cb
 trace_stats_summary_conf
@@ -33,8 +33,3 @@ trace_stats_summary_utils
                    -open Tezos_base__TzPervasives
                    -open Tezos_stdlib_unix
                    -open Tezos_stdlib)))
-
-(executable
- (name manage_stats)
- (modules manage_stats)
- (libraries cmdliner tezos-context.recording tezos-hacl-glue-unix))

@@ -1,7 +1,7 @@
 (*****************************************************************************)
 (*                                                                           *)
 (* Open Source License                                                       *)
-(* Copyright (c) 2018-2021 Tarides <contact@tarides.com>                     *)
+(* Copyright (c) 2018-2022 Tarides <contact@tarides.com>                     *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -60,14 +60,41 @@ let v =
           | "vv" -> {acc with verbosity = `Debug}
           | v -> (
               match String.split '=' v |> List.map String.trim with
-              | ["index-log-size"; n] ->
-                  {acc with index_log_size = int_of_string_opt n}
-              | ["auto-flush"; n] -> {acc with auto_flush = int_of_string_opt n}
+              | ["index-log-size"; n] -> (
+                  match int_of_string_opt n with
+                  | None ->
+                      Fmt.epr
+                        "[WARNING] Trying to convert %s into an integer for \
+                         index-log-size, but the conversion failed. Using \
+                         default settings."
+                        n ;
+                      acc
+                  | some -> {acc with index_log_size = some})
+              | ["auto-flush"; n] -> (
+                  match int_of_string_opt n with
+                  | None ->
+                      Fmt.epr
+                        "[WARNING] Trying to convert %s into an integer for \
+                         auto-flush, but the conversion failed. Using default \
+                         settings."
+                        n ;
+                      acc
+                  | some -> {acc with auto_flush = some})
               | ["actions-trace-record-directory"; path] ->
                   {acc with record_raw_actions_trace = `Yes path}
               | ["stats-trace-record-directory"; path] ->
                   {acc with record_stats_trace = `Yes path}
-              | _ -> acc))
+              | unknown :: _ ->
+                  Fmt.epr
+                    "[WARNING] Unknow option %s detected in the environment \
+                     variable TEZOS_CONTEXT."
+                    unknown ;
+                  acc
+              | [] ->
+                  Fmt.epr
+                    "[WARNING] Empty string detected in the environment \
+                     variable TEZOS_CONTEXT." ;
+                  acc))
         default
         (String.split ',' v)
 

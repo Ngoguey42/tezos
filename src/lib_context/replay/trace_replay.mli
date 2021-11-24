@@ -23,10 +23,4 @@
 (*                                                                           *)
 (*****************************************************************************)
 
-module Context = Context
-module Context_dump = Context_dump
-module Context_impl = Context_impl
-
-module Internal_for_tests = struct
-  module Utils = Utils
-end
+include Trace_replay_intf.Sigs

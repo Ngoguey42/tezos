@@ -1,18 +1,27 @@
-(*
- * Copyright (c) 2018-2021 Tarides <contact@tarides.com>
- *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- *)
+(*****************************************************************************)
+(*                                                                           *)
+(* Open Source License                                                       *)
+(* Copyright (c) 2021-2022 Tarides <contact@tarides.com>                     *)
+(*                                                                           *)
+(* Permission is hereby granted, free of charge, to any person obtaining a   *)
+(* copy of this software and associated documentation files (the "Software"),*)
+(* to deal in the Software without restriction, including without limitation *)
+(* the rights to use, copy, modify, merge, publish, distribute, sublicense,  *)
+(* and/or sell copies of the Software, and to permit persons to whom the     *)
+(* Software is furnished to do so, subject to the following conditions:      *)
+(*                                                                           *)
+(* The above copyright notice and this permission notice shall be included   *)
+(* in all copies or substantial portions of the Software.                    *)
+(*                                                                           *)
+(* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR*)
+(* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,  *)
+(* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL   *)
+(* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER*)
+(* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING   *)
+(* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER       *)
+(* DEALINGS IN THE SOFTWARE.                                                 *)
+(*                                                                           *)
+(*****************************************************************************)
 
 (** Pretty printing of one or more stats trace summaries.
 
@@ -23,6 +32,7 @@
 open Trace_stats_summary
 module Utils = Trace_stats_summary_utils
 module Summary = Trace_stats_summary
+module List = Stdlib.List
 
 (* let ( /. ) = Stdlib.( /.) *)
 
@@ -47,20 +57,25 @@ module Pb = struct
       | ([_] | []) as l -> l
       | hd :: tl -> hd :: sep :: interleave sep tl
     in
-    List.map (interleave (PrintBox.text " | "))
+    List.map (fun l ->
+        PrintBox.text " | " :: interleave (PrintBox.text " | ") l)
 end
 
 let fprintf_result ppf =
   Format.fprintf
     ppf
-    {|-- setups --
+    {|<details>
+<summary> Setups </summary>
+
 %s
+
+</details>
 
 %s
 
  - (1) Longest Context.commit.
  - The "per sec" stats are calculated over CPU time.
- - "max memory usage" is the max size of OCaml's major heap.
+ - "max memory usage" is the max size of the RSS memory allocated.
  - "mean CPU usage" is inexact.
 
 -- global --
@@ -107,10 +122,18 @@ let pp_scalar_fixed ppf (format, v) =
     | `S -> Utils.create_pp_seconds [v] ppf v
 
 (** Summary *)
+
 module Table0 = struct
-  let summary_config_entries =
+  module MsgSet = Set.Make (struct
+    type t = [`Key of string | `Message]
+
+    let compare = compare
+  end)
+
+  let no_value = "\xC3\xB8"
+
+  let static_summary_config_entries =
     [
-      `Message;
       `Hostname;
       `Os_type;
       `Big_endian;
@@ -135,6 +158,7 @@ module Table0 = struct
 
   let name_of_summary_config_entry = function
     | `Message -> "message"
+    | `Key json_key -> json_key
     | `Hostname -> "hostname"
     | `Os_type -> "os type"
     | `Big_endian -> "big endian"
@@ -156,9 +180,25 @@ module Table0 = struct
     | `Gc_custom_minor_ratio -> "gc.custom_minor_ratio"
     | `Gc_custom_minor_max_size -> "gc.custom_minor_max_size"
 
+  let parse_json = Repr.of_json_string (Repr.Json.assoc [%typ: string])
+
+  (** Returns the string value associated to the message if it can't be
+  parsed as a JSON object. Else, it returns <none>*)
+  let value_of_key k s =
+    match s.header.config.message with
+    | None -> no_value
+    | Some m -> (
+        match parse_json m with
+        | Ok json -> (
+            match List.assoc_opt k json with None -> no_value | Some v -> v)
+        | _ -> no_value)
+
   let cell_of_summary_config (s : summary) = function
     | `Message -> (
-        match s.header.config.message with None -> "\xC3\xB8" | Some m -> m)
+        match s.header.config.message with
+        | None -> no_value
+        | Some m -> ( match parse_json m with Ok _ -> no_value | _ -> m))
+    | `Key json_key -> value_of_key json_key s
     | `Hostname -> s.header.hostname
     | `Os_type -> s.header.os_type
     | `Big_endian -> string_of_bool s.header.big_endian
@@ -210,9 +250,66 @@ module Table0 = struct
     | `Gc_custom_minor_max_size ->
         string_of_int s.header.gc_control.custom_minor_max_size
 
+  let extract_keys_from s set =
+    match s.header.config.message with
+    | None -> set
+    | Some json -> (
+        match parse_json json with
+        | Ok kv ->
+            List.fold_left
+              (fun acc (json_key, _) -> MsgSet.add (`Key json_key) acc)
+              set
+              kv
+        | _ -> MsgSet.add `Message set)
+
+  let extract_all_keys summaries =
+    let key_set =
+      List.fold_left
+        (fun acc s -> extract_keys_from s acc)
+        MsgSet.empty
+        summaries
+    in
+    let keys = MsgSet.to_seq key_set |> List.of_seq |> List.fast_sort compare in
+    (keys
+      : [`Message | `Key of string] list
+      :> [> `Message | `Key of string] list)
+
+  let is_same_value length row =
+    let rec find_difference values ((_, value) as acc) =
+      match values with
+      | [] -> acc
+      | value' :: values ->
+          if value' <> value then (false, "") else find_difference values acc
+    in
+    if length <= 2 then (false, "")
+    else
+      match row with
+      | _ :: value :: values -> find_difference values (true, value)
+      | _ -> assert false
+  (* The size is check before. *)
+
+  let replace_same_values rows =
+    let aux row acc =
+      let length = List.length row in
+      let (has_same, value) = is_same_value length row in
+      if not has_same then row :: acc
+      else
+        let name = List.hd row in
+        let new_row =
+          name :: value :: List.init (length - 2) (Fun.const "<same>")
+        in
+        new_row :: acc
+    in
+    List.fold_right aux rows []
+
   let box_of_summaries_config summary_names (summaries : summary list) =
-    let row0 =
-      if List.length summary_names = 1 then [] else ["" :: summary_names]
+    let summary_name_length = List.length summaries in
+    let row0 = ["" :: summary_names] in
+    let separator_row =
+      [List.init (summary_name_length + 1) (Fun.const "--")]
+    in
+    let summary_config_entries =
+      extract_all_keys summaries @ static_summary_config_entries
     in
     let rows =
       List.map
@@ -221,14 +318,16 @@ module Table0 = struct
           let l = List.map (fun s -> cell_of_summary_config s e) summaries in
           n :: l)
         summary_config_entries
+      |> replace_same_values
     in
-    row0 @ rows |> Pb.matrix_to_text
+    row0 @ separator_row @ rows |> Pb.matrix_to_text
 end
 
 (** Highlights *)
 module Table1 = struct
   let rows_of_summaries summaries =
     let cpu_time_elapsed = List.map (fun s -> s.elapsed_cpu) summaries in
+    let wall_time_elapsed = List.map (fun s -> s.elapsed_wall) summaries in
     let add_per_sec =
       List.map
         (fun s ->
@@ -298,9 +397,8 @@ module Table1 = struct
         summaries
     in
     let max_ram =
-      (* TODO: Use max rss (too?) *)
       List.map
-        (fun s -> s.gc.major_heap_top_bytes.value_after_commit.max_value |> fst)
+        (fun s -> s.rusage.maxrss.value_after_commit.max_value |> fst)
         summaries
     in
     let mean_cpu_usage =
@@ -309,6 +407,7 @@ module Table1 = struct
     [
       `Section "-- main metrics --";
       `Data (`SM, "CPU time elapsed", cpu_time_elapsed);
+      `Data (`SM, "Wall time elapsed", wall_time_elapsed);
       `Data (`R3, "TZ-transactions per sec", tx_per_sec);
       `Data (`R3, "TZ-operations per sec", tz_ops_per_sec);
       `Data (`R3, "Context.add per sec", add_per_sec);
@@ -635,6 +734,7 @@ module Table3 = struct
     @ [
         span_durations ~f:(`S, `S) (`Frequent_op `Init);
         span_durations ~f:(`S, `S) `Close;
+        span_durations ~f:(`S, `S) `Dump_context;
         span_durations ~f:(`S, `S) `Unseen;
         `Spacer;
         v "Major heap bytes after commit" (fun s -> s.gc.major_heap_bytes);
@@ -884,7 +984,17 @@ module Table4 = struct
     let tz_contract_count =
       zip (fun s -> s.block_specs.tzop_count_contract.value.evolution)
     in
-
+    let tz_gas_used = zip (fun s -> s.block_specs.tzgas_used.value.evolution) in
+    let tz_storage_size =
+      zip (fun s -> s.block_specs.tzstorage_size.value.evolution)
+    in
+    let tz_cycle_snapshot =
+      zip (fun s -> s.block_specs.tzcycle_snapshot.value.evolution)
+    in
+    let tz_time = zip (fun s -> s.block_specs.tztime.value.evolution) in
+    let tz_solvetime =
+      zip (fun s -> s.block_specs.tzsolvetime.value.evolution)
+    in
     let ev_count_pb =
       zip (fun s -> s.block_specs.ev_count.diff_per_block.evolution)
     in
@@ -911,6 +1021,11 @@ module Table4 = struct
       `Data (`R, "TZ-transaction count *C", tz_tx_count);
       `Data (`R, "TZ-contrat count *C", tz_contract_count);
       `Data (`R, "Context op count *C", ev_count);
+      `Data (`R, "TZ-gas used *C", tz_gas_used);
+      `Data (`R, "TZ-storage size *C", tz_storage_size);
+      `Data (`R, "TZ-cycle snapshot *C", tz_cycle_snapshot);
+      `Data (`R, "TZ-time *C", tz_time);
+      `Data (`R, "TZ-solve time *C", tz_solvetime);
       `Data (`R, "TZ-operations per block *C", tz_ops_count_pb);
       `Data (`R, "TZ-transaction per block *C", tz_tx_count_pb);
       `Data (`R, "TZ-contrat per block *C", tz_contract_count_pb);
@@ -931,6 +1046,7 @@ module Table4 = struct
     @ List.map (span_duration `Su) Span.Key.all_frequent_ops
     @ [
         span_duration `Sm `Close;
+        span_duration `Sm `Dump_context;
         span_duration `Sm `Unseen;
         (* derived from bag_of_stat *)
         `Spacer;
@@ -1129,18 +1245,19 @@ let unsafe_pp sample_count ppf summary_names (summaries : Summary.t list) =
     |> PrintBox_text.to_string
   in
   let table1 =
-    let only_one_summary = List.length summaries = 1 in
+    let summary_length = List.length summaries in
     let header_rows =
-      (if only_one_summary then [] else ["" :: summary_names])
-      |> Pb.matrix_to_text
-      |> Pb.align_matrix `Center
+      ["" :: summary_names] |> Pb.matrix_to_text |> Pb.align_matrix `Center
     in
-    let col_count = List.length summaries + 1 in
+    let col_count = summary_length + 1 in
+    let separator = [List.init (summary_length + 1) (Fun.const "--")] in
+    let separator_row = Pb.matrix_to_text separator in
     let body_rows =
       Table1.rows_of_summaries summaries |> Table1.matrix_of_rows col_count
     in
-    header_rows @ body_rows |> Pb.matrix_with_column_spacers
-    |> Pb.grid_l ~bars:false |> PrintBox_text.to_string
+    header_rows @ separator_row @ body_rows
+    |> Pb.matrix_with_column_spacers |> Pb.grid_l ~bars:false
+    |> PrintBox_text.to_string
   in
   let table2 =
     let header_rows = Table2.create_header_rows summaries in

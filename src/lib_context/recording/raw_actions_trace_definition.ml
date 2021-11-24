@@ -1,18 +1,27 @@
-(*
- * Copyright (c) 2018-2021 Tarides <contact@tarides.com>
- *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- *)
+(*****************************************************************************)
+(*                                                                           *)
+(* Open Source License                                                       *)
+(* Copyright (c) 2021-2022 Tarides <contact@tarides.com>                     *)
+(*                                                                           *)
+(* Permission is hereby granted, free of charge, to any person obtaining a   *)
+(* copy of this software and associated documentation files (the "Software"),*)
+(* to deal in the Software without restriction, including without limitation *)
+(* the rights to use, copy, modify, merge, publish, distribute, sublicense,  *)
+(* and/or sell copies of the Software, and to permit persons to whom the     *)
+(* Software is furnished to do so, subject to the following conditions:      *)
+(*                                                                           *)
+(* The above copyright notice and this permission notice shall be included   *)
+(* in all copies or substantial portions of the Software.                    *)
+(*                                                                           *)
+(* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR*)
+(* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,  *)
+(* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL   *)
+(* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER*)
+(* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING   *)
+(* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER       *)
+(* DEALINGS IN THE SOFTWARE.                                                 *)
+(*                                                                           *)
+(*****************************************************************************)
 
 (** File format of a trace listing the interactions between lib_context and
     the rest of Octez.
@@ -44,14 +53,10 @@
     Thanks to this grouping, it appears clearly that [Add_tree] is the only
     operation that combines trees into contexts (its domain is [i_ io ___]). *)
 
-(** [V0] was a development version of recording. These files are now
-    deprecated in favor of [V1]. *)
-module V0 = struct end
-
 (** Latest raw actions trace version. Modifications to this module shouldn't
     break compatibilty with existing files using this format. *)
-module V1 = struct
-  let version = 1
+module V0 = struct
+  let version = 0
 
   type header = unit [@@deriving repr]
 
@@ -63,7 +68,7 @@ module V1 = struct
 
   type message = string [@@deriving repr]
 
-  type tracker = int64 [@@deriving repr]
+  type tracker = Optint.Int63.t [@@deriving repr]
 
   type tracker_range = {first_tracker : tracker; count : int} [@@deriving repr]
 
@@ -90,6 +95,8 @@ module V1 = struct
 
   type depth = [`Eq of int | `Ge of int | `Gt of int | `Le of int | `Lt of int]
   [@@deriving repr]
+
+  type order = [`Sorted | `Undefined] [@@deriving repr]
 
   type block_level = int32 [@@deriving repr]
 
@@ -158,10 +165,11 @@ module V1 = struct
     type raw = [`Value of value | `Tree of (step * raw) list] [@@deriving repr]
 
     type t =
+      (* [_o i_ ___] *)
+      | Empty of (context, tree) fn
+      | Of_value of (context * value, tree) fn
       (* [_o __ ___] *)
-      | Empty of (unit, tree) fn
       | Of_raw of (raw, tree) fn
-      | Of_value of (value, tree) fn
       (* [i_ __ ___] *)
       | Mem of (tree * key, bool) fn
       | Mem_tree of (tree * key, bool) fn
@@ -181,7 +189,7 @@ module V1 = struct
       | Add of (tree * key * value, tree) fn
       | Add_tree of (tree * key * tree, tree) fn
       | Remove of (tree * key, tree) fn
-      | Fold_start of depth option * tree * key
+      | Fold_start of (depth option * order) * tree * key
       | Fold_step_enter of tree (* not recording step *)
       | Fold_step_exit of tree
       | Fold_end of int
@@ -197,7 +205,7 @@ module V1 = struct
         ( context * int option * int option,
           trees_with_contiguous_trackers (* not recording the steps *) )
         fn
-    | Fold_start of depth option * context * key
+    | Fold_start of (depth option * order) * context * key
     | Fold_step_enter of tree (* not recording step *)
     | Fold_step_exit of tree
     | Fold_end of int
@@ -239,9 +247,10 @@ module V1 = struct
     | Sync of timestamp_bounds
     | Set_master of (commit_hash, unit) fn
     | Set_head of (chain_id * commit_hash, unit) fn
-    | Commit_genesis of
-        (chain_id * time_protocol * hash, (commit_hash, unit) result) fn
-        * timestamp_bounds
+    | Commit_genesis_start of
+        (chain_id * time_protocol * hash, unit) fn * system_wide_timestamp
+    | Commit_genesis_end of
+        (unit, (commit_hash, unit) result) fn * system_wide_timestamp
     | Clear_test_chain of (chain_id, unit) fn
     (* [__ i_ __m] *)
     | Commit of
@@ -253,15 +262,17 @@ module V1 = struct
         fn
         * timestamp_bounds
     (* [__ ~~ _o_] *)
-    | Init of (bool option, unit) fn
+    | Init of (bool, unit) fn
     | Patch_context_enter of context
     | Patch_context_exit of context * (context, unit) result
+    (* [__ __ i__] *)
+    | Dump_context of timestamp_bounds
     (* special *)
-    | Unhandled of string
+    | Unhandled of Recorder.unhandled
   [@@deriving repr]
 end
 
-module Latest = V1
+module Latest = V0
 include Latest
 
 include Trace_auto_file_format.Make (struct
@@ -272,15 +283,13 @@ include Trace_auto_file_format.Make (struct
       The meaning is a bit stale but let's preserve backward compatibility with
       existing files.
    *)
-  let magic = Trace_auto_file_format.Magic.of_string "IrmRawBT"
+  let magic = Trace_auto_file_format.Magic.of_string "TezosRaw"
 
   let get_version_converter = function
     | 0 ->
-        raise (Misc.Suspicious_trace_file "Deprecated Raw_actions_trace version 0")
-    | 1 ->
         Trace_auto_file_format.create_version_converter
-          ~header_t:V1.header_t
-          ~row_t:V1.row_t
+          ~header_t:V0.header_t
+          ~row_t:V0.row_t
           ~upgrade_header:Fun.id
           ~upgrade_row:Fun.id
     | i ->
@@ -308,14 +317,8 @@ let take : type a. int -> a Seq.t -> a list =
 let type_of_file p =
   let (_, _, reader) = open_reader p in
   let l = take 10 reader in
-  let ros =
-    List.filter (function Init (Some true, _) -> true | _ -> false) l
-  in
-  let rws =
-    List.filter
-      (function Init (Some false, _) | Init (None, _) -> true | _ -> false)
-      l
-  in
+  let ros = List.filter (function Init (true, _) -> true | _ -> false) l in
+  let rws = List.filter (function Init (false, _) -> true | _ -> false) l in
   match (List.length ros, List.length rws) with
   | (1, 0) -> `Ro
   | (0, 1) -> `Rw

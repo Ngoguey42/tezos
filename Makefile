@@ -35,6 +35,7 @@ TEZOS_BIN=tezos-node tezos-validator tezos-client tezos-admin-client tezos-signe
     # TODO: <https://gitlab.com/tezos/tezos/-/issues/2305>
     # Build sc rollup binaries for all the active protocols, not just alpha,
     # and for every profile.
+CONTEXT_BIN=manage_stats manage_actions replay
 
 ifeq ($(filter ${opam_version}.%,${current_opam_version}),)
 $(error Unexpected opam version (found: ${current_opam_version}, expected: ${opam_version}.*))
@@ -69,6 +70,7 @@ ifneq (${current_ocaml_version},${ocaml_version})
 endif
 	@dune build --profile=$(PROFILE) $(COVERAGE_OPTIONS) \
 		$(foreach b, $(TEZOS_BIN), _build/install/default/bin/${b}) \
+		$(foreach b, $(CONTEXT_BIN), src/bin_context/${b}.exe) \
 		@copy-parameters
 	@cp -f $(foreach b, $(TEZOS_BIN), _build/install/default/bin/${b}) ./
 

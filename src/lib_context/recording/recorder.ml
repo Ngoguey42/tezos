@@ -1,7 +1,7 @@
 (*****************************************************************************)
 (*                                                                           *)
 (* Open Source License                                                       *)
-(* Copyright (c) 2018-2021 Tarides <contact@tarides.com>                     *)
+(* Copyright (c) 2021-2022 Tarides <contact@tarides.com>                     *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -36,18 +36,33 @@
     Idea: Share this signature with [Context_sigs.S] by using the following
     trick: [module type OPERATIONS = S with type 'a output := 'a],
     [module type RECORDER = S with type 'a output := 'a -> unit]. *)
+
+(** All the cases that are not handled by a recorder. *)
+type unhandled =
+  | Tree_shallow
+  | Tree_to_raw
+  | Tree_pp
+  | Tree_length
+  | Tree_stats
+  | Length
+  | Stats
+  | Restore_context
+  | Check_protocol_commit_consistency
+  | Validate_context_hash_consistency_and_commit
+  | Legacy_restore_context
+  | Legacy_restore_contexts
+  | Legacy_get_protocol_data_from_header
+  | Legacy_dump_snapshot
+[@@deriving repr]
+
 module type S = sig
   module Impl : Tezos_context_sigs.Context.S
 
   (** A [Context.tree] alongside a unique identifier. *)
-  type tree = Impl.tree * int64
+  type tree = Impl.tree * Optint.Int63.t
 
   (** A [Context.t] alongside a unique identifier. *)
-  type context = Impl.context * int64
-
-  (** Dummy type for the observers of lib_context functions that don't take
-      specific parameters (e.g. [Tree.shallow] takes an ['a]) *)
-  type no_input := unit
+  type context = Impl.context * Optint.Int63.t
 
   (** Return type of most observers *)
   type 'res output := 'res -> unit
@@ -57,14 +72,14 @@ module type S = sig
 
   (** Observer function that notifies the call to an unhandled [Context]
       function. *)
-  val unhandled : string -> _ output
+  val unhandled : unhandled -> _ output
 
   module Tree : sig
-    val empty : no_input -> tree output
+    val empty : context -> tree output
 
     val of_raw : Impl.Tree.raw -> tree output
 
-    val of_value : Impl.value -> tree output
+    val of_value : context -> Impl.value -> tree output
 
     val mem : tree -> Impl.key -> bool output
 
@@ -101,6 +116,7 @@ module type S = sig
     val fold :
       depth:
         [`Eq of int | `Ge of int | `Gt of int | `Le of int | `Lt of int] option ->
+      order:[`Sorted | `Undefined] ->
       tree ->
       Impl.key ->
       int output
@@ -119,6 +135,7 @@ module type S = sig
   val fold :
     depth:
       [`Eq of int | `Ge of int | `Gt of int | `Le of int | `Lt of int] option ->
+    order:[`Sorted | `Undefined] ->
     context ->
     Impl.key ->
     int output
@@ -228,4 +245,17 @@ module type S = sig
   val init : readonly:bool option -> string -> Impl.index output
 
   val patch_context : context -> context tzresult output
+
+  val restore_context :
+    Impl.index ->
+    expected_context_hash:Context_hash.t ->
+    nb_context_elements:int ->
+    fd:Lwt_unix.file_descr ->
+    unit tzresult output_lwt
+
+  val dump_context :
+    Impl.index ->
+    Context_hash.t ->
+    fd:Lwt_unix.file_descr ->
+    int tzresult output_lwt
 end

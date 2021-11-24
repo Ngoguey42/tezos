@@ -1,7 +1,7 @@
 (*****************************************************************************)
 (*                                                                           *)
 (* Open Source License                                                       *)
-(* Copyright (c) 2018-2021 Tarides <contact@tarides.com>                     *)
+(* Copyright (c) 2021-2022 Tarides <contact@tarides.com>                     *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -28,13 +28,10 @@
 
     Such files can be summarised to JSON in order to enable data analysis. *)
 
-(** This version has been discontinued *)
-module V0 = struct end
-
-module V1 = struct
+module V0 = struct
   type float32 = int32 [@@deriving repr]
 
-  let version = 1
+  let version = 0
 
   (** Stats extracted from [Irmin_pack.Stats.get ()]. *)
   type pack = {
@@ -146,9 +143,7 @@ module V1 = struct
     | `Big_maps_index
     | `Rolls_index
     | `Rolls_owner_current
-    | `Commitments
-    | `Contracts_index_ed25519
-    | `Contracts_index_originated ]
+    | `Commitments ]
   [@@deriving repr, enum]
 
   (** Stats computed on the [tree] value passed to the commit operation, after
@@ -175,8 +170,7 @@ module V1 = struct
       | `Add
       | `Add_tree
       | `Remove
-      | `Fold
-      ]
+      | `Fold ]
     [@@deriving repr]
 
     type tag =
@@ -211,13 +205,14 @@ module V1 = struct
       | `Set_head
       | `Clear_test_chain
       | `Commit_test_chain_genesis
-      | `Init ]
+      | `Init
+      | `Restore_context ]
     [@@deriving repr]
 
     type payload = float32 [@@deriving repr]
   end
 
-  module Close_op = struct
+  module Stats_op = struct
     type payload = {
       duration : float32;
       before : bag_of_stats;
@@ -234,6 +229,11 @@ module V1 = struct
       tzop_count : int;
       tzop_count_tx : int;
       tzop_count_contract : int;
+      tz_gas_used : int;
+      tz_storage_size : int;
+      tz_cycle_snapshot : int;
+      tz_time : int;
+      tz_solvetime : int;
       ev_count : int;
       uses_patch_context : bool;
     }
@@ -266,7 +266,8 @@ module V1 = struct
   type row =
     [ `Frequent_op of Frequent_op.tag * Frequent_op.payload
     | `Commit of Commit_op.payload
-    | `Close of Close_op.payload ]
+    | `Close of Stats_op.payload
+    | `Dump_context of Stats_op.payload ]
   [@@deriving repr]
 
   (** Stats extracted from [Gc.get ()]. *)
@@ -337,7 +338,7 @@ module V1 = struct
   [@@deriving repr]
 end
 
-module Latest = V1
+module Latest = V0
 include Latest
 
 let watched_nodes : watched_node list =
@@ -351,10 +352,6 @@ let step_list_per_watched_node =
     | `Rolls_index -> ["data"; "rolls"; "index"]
     | `Rolls_owner_current -> ["data"; "rolls"; "owner"; "current"]
     | `Commitments -> ["data"; "commitments"]
-    | `Lol -> []
-    | `Contracts_index_ed25519 -> ["data"; "contracts"; "index"; "ed25519"]
-    | `Contracts_index_originated ->
-        ["data"; "contracts"; "index"; "originated"]
   in
   Stdlib.List.combine watched_nodes (List.map aux watched_nodes)
 
@@ -367,14 +364,13 @@ include Trace_auto_file_format.Make (struct
   module Latest = Latest
 
   (** Irmin's Stats Bootstrap Trace *)
-  let magic = Trace_auto_file_format.Magic.of_string "IrmStaBT"
+  let magic = Trace_auto_file_format.Magic.of_string "TezosSta"
 
   let get_version_converter = function
-    | 0 -> raise (Misc.Suspicious_trace_file "Deprecated Stats_trace version 0")
-    | 1 ->
+    | 0 ->
         Trace_auto_file_format.create_version_converter
-          ~header_t:V1.header_t
-          ~row_t:V1.row_t
+          ~header_t:V0.header_t
+          ~row_t:V0.row_t
           ~upgrade_header:Fun.id
           ~upgrade_row:Fun.id
     | i -> Fmt.invalid_arg "Unknown Stats_trace version %d" i

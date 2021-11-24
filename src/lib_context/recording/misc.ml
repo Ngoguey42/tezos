@@ -1,7 +1,7 @@
 (*****************************************************************************)
 (*                                                                           *)
 (* Open Source License                                                       *)
-(* Copyright (c) 2018-2021 Tarides <contact@tarides.com>                     *)
+(* Copyright (c) 2021-2022 Tarides <contact@tarides.com>                     *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -30,6 +30,8 @@ exception Recording_io_error of string
 exception Suspicious_trace_file of string
 
 exception Stats_trace_without_init
+
+exception Raw_trace_without_init
 
 let prepare_trace_file prefix filename =
   let rec mkdir_p path =

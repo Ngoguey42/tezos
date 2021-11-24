@@ -1,7 +1,7 @@
 (*****************************************************************************)
 (*                                                                           *)
 (* Open Source License                                                       *)
-(* Copyright (c) 2018-2021 Tarides <contact@tarides.com>                     *)
+(* Copyright (c) 2021-2022 Tarides <contact@tarides.com>                     *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -316,13 +316,17 @@ module Writer (Impl : Tezos_context_sigs.Context.S) = struct
     in
     Def.append_row t.writer (`Frequent_op (short_op, duration))
 
-  let commit_begin t context =
+  let commit_begin t ?context () =
     assert (List.length t.recursive_timers = 0) ;
     let stats_before =
       Bag_of_stats.create t.store_path t.prev_merge_durations
     in
     t.prev_merge_durations <- Index.Stats.((get ()).merge_durations) ;
-    let+ store_before = create_store_before context in
+    let+ store_before =
+      match context with
+      | None -> Lwt.return @@ dummy_store_before
+      | Some context -> create_store_before context
+    in
     Recursive_timer.begin_ t ;
     t.bag_before <- stats_before ;
     t.store_before <- store_before
@@ -331,12 +335,16 @@ module Writer (Impl : Tezos_context_sigs.Context.S) = struct
 
   let patch_context_end = Recursive_timer.enter
 
-  let commit_end t ?specs context =
+  let commit_end t ?specs ?context () =
     let duration = Recursive_timer.end_ t in
     let duration = duration |> Mtime.Span.to_s |> Int32.bits_of_float in
     let stats_after = Bag_of_stats.create t.store_path t.prev_merge_durations in
     t.prev_merge_durations <- Index.Stats.((get ()).merge_durations) ;
-    let+ store_after = create_store_after context in
+    let+ store_after =
+      match context with
+      | None -> Lwt.return @@ dummy_store_after
+      | Some context -> create_store_after context
+    in
     let op =
       `Commit
         Def.Commit_op.
@@ -351,7 +359,7 @@ module Writer (Impl : Tezos_context_sigs.Context.S) = struct
     in
     Def.append_row t.writer op
 
-  let close_begin t =
+  let stats_begin t =
     Direct_timer.begin_ t ;
     let stats_before =
       Bag_of_stats.create t.store_path t.prev_merge_durations
@@ -359,15 +367,22 @@ module Writer (Impl : Tezos_context_sigs.Context.S) = struct
     t.prev_merge_durations <- Index.Stats.((get ()).merge_durations) ;
     t.bag_before <- stats_before
 
-  let close_end t =
+  let stats_end t tag =
     let duration =
       Direct_timer.end_ t |> Mtime.Span.to_s |> Int32.bits_of_float
     in
     let stats_after = Bag_of_stats.create t.store_path t.prev_merge_durations in
     t.prev_merge_durations <- Index.Stats.((get ()).merge_durations) ;
     let op =
-      `Close Def.Close_op.{duration; before = t.bag_before; after = stats_after}
+      match tag with
+      | `Close_op ->
+          `Close
+            Def.Stats_op.{duration; before = t.bag_before; after = stats_after}
+      | `Dump_context_op ->
+          `Dump_context
+            Def.Stats_op.{duration; before = t.bag_before; after = stats_after}
     in
+
     Def.append_row t.writer op
 end
 
@@ -376,17 +391,32 @@ module Make
       val prefix : string
 
       val message : string option
-    end) : Recorder.S with module Impl = Impl = struct
+    end) =
+struct
   module Writer = Writer (Impl)
 
+  let path = ref None
+
+  let specs = ref None
+
   let writer = ref None
+
+  let get_stat_path () =
+    match !path with
+    | Some path -> path
+    | None ->
+        Fmt.failwith
+          "Trying to get the path from state_trace that hasn't been init yet."
+
+  let set_stat_specs local_specs = specs := Some local_specs
 
   let setup_writer store_path =
     match !writer with
     | None ->
         let filename = Printf.sprintf "stats_trace.%d.trace" (Unix.getpid ()) in
-        let path = Misc.prepare_trace_file Trace_config.prefix filename in
-        Logs.app (fun l -> l "Creating %s" path) ;
+        let local_path = Misc.prepare_trace_file Trace_config.prefix filename in
+        path := Some local_path ;
+        Logs.app (fun l -> l "Creating %s" local_path) ;
         let config =
           Def.
             {
@@ -395,7 +425,7 @@ module Make
               message = Trace_config.message;
             }
         in
-        let w = Writer.create_file path config store_path in
+        let w = Writer.create_file local_path config store_path in
         writer := Some w
     | Some _ ->
         (* [setup_writer] is not expected to be called several times because
@@ -414,13 +444,21 @@ module Make
 
   module Impl = Impl
 
-  type tree = Impl.tree * int64
+  type tree = Impl.tree * Optint.Int63.t
 
-  type context = Impl.context * int64
+  type context = Impl.context * Optint.Int63.t
 
   let direct_op_begin () = Writer.direct_op_begin (get_writer ())
 
   let direct_op_end tag = Writer.direct_op_end (get_writer ()) tag
+
+  let close_begin () = Writer.stats_begin (get_writer ())
+
+  let close_end () = Writer.stats_end (get_writer ()) `Close_op
+
+  let dump_context_begin () = Writer.stats_begin (get_writer ())
+
+  let dump_context_end () = Writer.stats_end (get_writer ()) `Dump_context_op
 
   let recursive_op_begin () = Writer.recursive_op_begin (get_writer ())
 
@@ -439,7 +477,7 @@ module Make
       direct_op_begin () ;
       fun _res -> direct_op_end (`Tree `Of_raw)
 
-    let of_value _ =
+    let of_value _ _ =
       direct_op_begin () ;
       fun _res -> direct_op_end (`Tree `Of_value)
 
@@ -500,7 +538,7 @@ module Make
       fun _res -> direct_op_end (`Tree `Remove)
 
     (** Not simple direct *)
-    let fold ~depth:_ _ _ =
+    let fold ~depth:_ ~order:_ _ _ =
       recursive_op_begin () ;
       fun _res -> recursive_op_end (`Tree `Fold)
 
@@ -519,7 +557,7 @@ module Make
     fun _res -> direct_op_end `List
 
   (** Not simple direct *)
-  let fold ~depth:_ _ _ =
+  let fold ~depth:_ ~order:_ _ _ =
     recursive_op_begin () ;
     fun _res -> recursive_op_end (`Tree `Fold)
 
@@ -610,16 +648,22 @@ module Make
 
   let checkout _ _ =
     direct_op_begin () ;
-    fun _res -> direct_op_end `Checkout
+    fun _res ->
+      direct_op_end `Checkout ;
+      Writer.flush (get_writer ())
 
   let checkout_exn _ _ =
     direct_op_begin () ;
-    fun _res -> direct_op_end `Checkout_exn
+    fun _res ->
+      direct_op_end `Checkout_exn ;
+      Writer.flush (get_writer ())
 
   (** Not simple direct *)
   let close _ =
-    Writer.close_begin (get_writer ()) ;
-    fun _res -> Writer.close_end (get_writer ())
+    close_begin () ;
+    fun _res ->
+      close_end () ;
+      Writer.flush (get_writer ())
 
   let sync _ =
     direct_op_begin () ;
@@ -635,9 +679,11 @@ module Make
 
   (** Not simple direct *)
   let commit_genesis _ ~chain_id:_ ~time:_ ~protocol:_ =
-    (* let* () = Stats_collector.commit_begin rs.stats context in *)
+    let specs = !specs in
+    let* () = Writer.commit_begin (get_writer ()) () in
     Lwt.return @@ fun _res ->
-    (* let* () = Stats_collector.commit_end rs.stats context in *)
+    let* () = Writer.commit_end ?specs (get_writer ()) () in
+    Writer.flush (get_writer ()) ;
     Lwt.return_unit
 
   let clear_test_chain _ _ =
@@ -646,12 +692,11 @@ module Make
 
   (** Not simple direct *)
   let commit ~time:_ ~message:_ (ctx, _) =
-    Fmt.epr "stats_trace_recorder commit start\n%!";
-    let* () = Writer.commit_begin (get_writer ()) ctx in
+    let specs = !specs in
+    let* () = Writer.commit_begin (get_writer ()) ~context:ctx () in
     Lwt.return @@ fun _res ->
-    let* () = Writer.commit_end (get_writer ()) ctx in
-    Writer.flush (get_writer ());
-    Fmt.epr "stats_trace_recorder commit end\n%!";
+    let* () = Writer.commit_end (get_writer ()) ?specs ~context:ctx () in
+    Writer.flush (get_writer ()) ;
     Lwt.return_unit
 
   (** Not simple direct *)
@@ -670,8 +715,18 @@ module Make
     (* Stats_collector.patch_context_end (get_writer ()); *)
     ()
 
+  let restore_context _ ~expected_context_hash:_ ~nb_context_elements:_ ~fd:_ =
+    direct_op_begin () ;
+    Lwt.return @@ fun _res ->
+    direct_op_end `Restore_context ;
+    Lwt.return_unit
+
+  let dump_context _ _ ~fd:_ =
+    dump_context_begin () ;
+    Lwt.return @@ fun _res ->
+    dump_context_end () ;
+    Lwt.return_unit
+
   (** Not simple direct *)
-  let unhandled _name _res =
-    (* TODO: What? *)
-    ()
+  let unhandled _name _res = ()
 end

@@ -1,7 +1,7 @@
 (*****************************************************************************)
 (*                                                                           *)
 (* Open Source License                                                       *)
-(* Copyright (c) 2018-2021 Tarides <contact@tarides.com>                     *)
+(* Copyright (c) 2021-2022 Tarides <contact@tarides.com>                     *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -42,7 +42,7 @@ end) : sig
 
   type t_unwrapped = V.t
 
-  type tracker = int64
+  type tracker = Optint.Int63.t
 
   val wrap : t_unwrapped -> t
 
@@ -50,17 +50,17 @@ end) : sig
 
   val tracker : t -> tracker
 end = struct
-  type tracker = int64
+  type tracker = Optint.Int63.t
 
   type t_unwrapped = V.t
 
   type t = {v : t_unwrapped; tr : tracker}
 
-  let counter = ref 0L
+  let counter = ref (Optint.Int63.of_int64 0L)
 
   let wrap v =
     let tr = !counter in
-    counter := Int64.succ !counter ;
+    counter := Optint.Int63.succ !counter ;
     {tr; v}
 
   let unwrap {v; _} = v
@@ -208,7 +208,7 @@ module Make
 
     let empty x =
       let record_and_return_output =
-        iter_recorders (fun (module R) -> R.Tree.empty ()) (fun res -> !!res)
+        iter_recorders (fun (module R) -> R.Tree.empty ~~x) (fun res -> !!res)
       in
       Impl.Tree.empty (Context_traced.unwrap x)
       |> Tree_traced.wrap |> record_and_return_output
@@ -221,7 +221,9 @@ module Make
 
     let of_value x y =
       let record_and_return_output =
-        iter_recorders (fun (module R) -> R.Tree.of_value y) (fun res -> !!res)
+        iter_recorders
+          (fun (module R) -> R.Tree.of_value ~~x y)
+          (fun res -> !!res)
       in
       Impl.Tree.of_value (Context_traced.unwrap x) y >|= fun res ->
       Tree_traced.wrap res |> record_and_return_output
@@ -340,8 +342,9 @@ module Make
         res
       in
       let record_and_return_output =
-        (* TODO: order *)
-        iter_recorders (fun (module R) -> R.Tree.fold ~depth !!x y) Fun.id
+        iter_recorders
+          (fun (module R) -> R.Tree.fold ~depth ~order !!x y)
+          Fun.id
       in
       Impl.Tree.fold ~order ?depth (Tree_traced.unwrap x) y ~init ~f
       >|= fun res ->
@@ -351,22 +354,24 @@ module Make
     (* loosely tracked *)
 
     let shallow x y =
-      record_unhandled_direct "tree.shallow" @@ fun () ->
+      record_unhandled_direct Recorder.Tree_shallow @@ fun () ->
       Impl.Tree.shallow x y >|= Tree_traced.wrap
 
     let to_raw x =
-      record_unhandled "tree.to_raw" @@ Impl.Tree.to_raw (Tree_traced.unwrap x)
+      record_unhandled Recorder.Tree_to_raw
+      @@ Impl.Tree.to_raw (Tree_traced.unwrap x)
 
     let pp x y =
-      record_unhandled_direct "tree.pp" @@ fun () ->
+      record_unhandled_direct Recorder.Tree_pp @@ fun () ->
       Impl.Tree.pp x (Tree_traced.unwrap y)
 
     let length x y =
-      record_unhandled "tree.length"
+      record_unhandled Recorder.Tree_length
       @@ Impl.Tree.length (Tree_traced.unwrap x) y
 
     let stats x =
-      record_unhandled "tree.stats" @@ Impl.Tree.stats (Tree_traced.unwrap x)
+      record_unhandled Recorder.Tree_stats
+      @@ Impl.Tree.stats (Tree_traced.unwrap x)
 
     (* not tracked and not wrapped *)
 
@@ -407,8 +412,7 @@ module Make
       res
     in
     let record_and_return_output =
-      (* TODO: order *)
-      iter_recorders (fun (module R) -> R.fold ~depth ~~x y) Fun.id
+      iter_recorders (fun (module R) -> R.fold ~depth ~order ~~x y) Fun.id
     in
     Impl.fold ~order ?depth (Context_traced.unwrap x) y ~init ~f >|= fun res ->
     let (_ : int) = record_and_return_output !entry_count in
@@ -688,29 +692,34 @@ module Make
   (* loosely tracked *)
 
   let length x y =
-    record_unhandled "length" @@ Impl.length (Context_traced.unwrap x) y
+    record_unhandled Recorder.Length @@ Impl.length (Context_traced.unwrap x) y
 
-  let stats x = record_unhandled "stats" @@ Impl.stats (Context_traced.unwrap x)
+  let stats x =
+    record_unhandled Recorder.Stats @@ Impl.stats (Context_traced.unwrap x)
 
   let restore_context x ~expected_context_hash ~nb_context_elements ~fd =
-    (* Idea: if this should ever be recorded, let's save a copy of what passes
-       through the fd. *)
-    record_unhandled "restore_context"
-    @@ Impl.restore_context
-         (Index_abstract.unwrap x)
-         ~expected_context_hash
-         ~nb_context_elements
-         ~fd
+    let x = Index_abstract.unwrap x in
+    let* record_and_return_output =
+      iter_recorders_lwt
+        (fun (module R) ->
+          R.restore_context ~expected_context_hash ~nb_context_elements ~fd x)
+        Fun.id
+    in
+    Impl.restore_context ~expected_context_hash ~nb_context_elements ~fd x
+    >>= record_and_return_output
 
   let dump_context x y ~fd =
-    record_unhandled "dump_context"
-    @@ Impl.dump_context (Index_abstract.unwrap x) y ~fd
+    let x = Index_abstract.unwrap x in
+    let* record_and_return_output =
+      iter_recorders_lwt (fun (module R) -> R.dump_context x y ~fd) Fun.id
+    in
+    Impl.dump_context x y ~fd >>= record_and_return_output
 
   let check_protocol_commit_consistency ~expected_context_hash
       ~given_protocol_hash ~author ~message ~timestamp ~test_chain_status
       ~predecessor_block_metadata_hash ~predecessor_ops_metadata_hash
       ~data_merkle_root ~parents_contexts =
-    record_unhandled "check_protocol_commit_consistency"
+    record_unhandled Recorder.Check_protocol_commit_consistency
     @@ Impl.check_protocol_commit_consistency
          ~expected_context_hash
          ~given_protocol_hash

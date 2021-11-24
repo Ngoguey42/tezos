@@ -1,7 +1,7 @@
 (*****************************************************************************)
 (*                                                                           *)
 (* Open Source License                                                       *)
-(* Copyright (c) 2018-2021 Tarides <contact@tarides.com>                     *)
+(* Copyright (c) 2021-2022 Tarides <contact@tarides.com>                     *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -45,24 +45,38 @@ module Make
     end) =
 struct
   (** Per-process raw trace writer. *)
-  let writer =
-    let filename =
-      Printf.sprintf "raw_actions_trace.%d.trace" (Unix.getpid ())
-    in
-    let path = Misc.prepare_trace_file Trace_config.prefix filename in
-    Logs.app (fun l -> l "Creating %s" path) ;
-    Def.create_file path ()
+  let writer = ref None
 
-  let () = Stdlib.at_exit (fun () -> Def.close writer)
+  let setup_writer () =
+    match !writer with
+    | None ->
+        let filename =
+          Printf.sprintf "raw_actions_trace.%d.trace" (Unix.getpid ())
+        in
+        let path = Misc.prepare_trace_file Trace_config.prefix filename in
+        Logs.app (fun l -> l "Creating %s" path) ;
+        writer := Some (Def.create_file path ())
+    | Some _ -> ()
+  (* This function is not expected to be called several times because
+     the [init] function must be called once. *)
+
+  let get_writer () =
+    match !writer with
+    | None -> raise Misc.Raw_trace_without_init
+    | Some writer -> writer
+
+  let () =
+    Stdlib.at_exit (fun () ->
+        match !writer with None -> () | Some w -> Def.close w)
 
   module Impl = Impl
 
-  type tree = Impl.tree * int64
+  type tree = Impl.tree * Optint.Int63.t
 
-  type context = Impl.context * int64
+  type context = Impl.context * Optint.Int63.t
 
   (** Write a new [row] to [writer] *)
-  let push v = Def.append_row writer v
+  let push v = Def.append_row (get_writer ()) v
 
   let encode_output_value b =
     if Bytes.length b <= 17 then `Value b
@@ -70,9 +84,11 @@ struct
 
   module Tree = struct
     (** Write a new [row] to [writer] *)
-    let push v = Def.append_row writer (Def.Tree v)
+    let push v = Def.append_row (get_writer ()) (Def.Tree v)
 
-    let empty () (_, res) = Def.Tree.Empty ((), res) |> push
+    let empty (_, x) (_, res) = Def.Tree.Empty (x, res) |> push
+
+    let of_value (_, x) v (_, res) = Def.Tree.Of_value ((x, v), res) |> push
 
     let of_raw raw (_, res) =
       let rec aux = function
@@ -83,8 +99,6 @@ struct
               |> List.map (fun (step, raw) -> (step, aux raw)))
       in
       Def.Tree.Of_raw (aux raw, res) |> push
-
-    let of_value x (_, res) = Def.Tree.Of_value (x, res) |> push
 
     let mem (_, x) y res = Def.Tree.Mem ((x, y), res) |> push
 
@@ -116,9 +130,8 @@ struct
 
     let list (_, x) ~offset ~length res =
       let count = List.length res in
-      let first_tracker =
-        match List.nth_opt res 0 with
-        | None -> -42L
+      let first_tracker = match List.nth_opt res 0 with
+        | None ->  Optint.Int63.of_int64 (-42L)
         | Some (_, (_, first)) -> first
       in
       let res = Def.{first_tracker; count} in
@@ -131,8 +144,8 @@ struct
 
     let remove (_, x) y (_, res) = Def.Tree.Remove ((x, y), res) |> push
 
-    let fold ~depth (_, x) y =
-      Def.Tree.Fold_start (depth, x, y) |> push ;
+    let fold ~depth ~order (_, x) y =
+      Def.Tree.Fold_start ((depth, order), x, y) |> push ;
       fun z -> Def.Tree.Fold_end z |> push
 
     let fold_step _i (_, y) =
@@ -146,16 +159,15 @@ struct
 
   let list (_, x) ~offset ~length res =
     let count = List.length res in
-    let first_tracker =
-      match List.nth_opt res 0 with
-      | None -> -42L
+    let first_tracker =      match List.nth_opt res 0 with
+      | None -> Optint.Int63.of_int64 (-42L)
       | Some (_, (_, first)) -> first
     in
     let res = Def.{first_tracker; count} in
     Def.List ((x, offset, length), res) |> push
 
-  let fold ~depth (_, x) y =
-    Def.Fold_start (depth, x, y) |> push ;
+  let fold ~depth ~order (_, x) y =
+    Def.Fold_start ((depth, order), x, y) |> push ;
     fun z -> Def.Fold_end z |> push
 
   let fold_step _i (_, y) =
@@ -241,7 +253,7 @@ struct
       let res = Option.map (fun (_, res) -> res) res in
       Def.Checkout ((x, res), {before; after}) |> push ;
       (* Flush trace on checkout *)
-      Def.flush writer
+      Def.flush (get_writer ())
 
   let checkout_exn _index x =
     let x = Context_hash.to_string x in
@@ -251,12 +263,12 @@ struct
       let res = match res with Error _ -> Error () | Ok (_, res) -> Ok res in
       Def.Checkout_exn ((x, res), {before; after}) |> push ;
       (* Flush trace on checkout *)
-      Def.flush writer
+      Def.flush (get_writer ())
 
   let close _index () =
     Def.Close |> push ;
     (* Flush trace on close *)
-    Def.flush writer
+    Def.flush (get_writer ())
 
   let sync _index =
     let before = system_wide_now () in
@@ -278,6 +290,7 @@ struct
     let time = Time.Protocol.to_seconds time in
     let protocol = Protocol_hash.to_string protocol in
     let before = system_wide_now () in
+    Def.Commit_genesis_start (((chain_id, time, protocol), ()), before) |> push ;
     Lwt.return @@ fun res ->
     let after = system_wide_now () in
     let res =
@@ -285,8 +298,7 @@ struct
       | Error _ -> Error ()
       | Ok res -> Ok (Context_hash.to_string res)
     in
-    Def.Commit_genesis (((chain_id, time, protocol), res), {before; after})
-    |> push ;
+    Def.Commit_genesis_end (((), res), after) |> push ;
     Lwt.return_unit
 
   let clear_test_chain _index x () =
@@ -315,13 +327,30 @@ struct
       in
       Def.Commit_test_chain_genesis (((x, y), ()), {before; after}) |> push
 
-  let init ~readonly _path _res = Def.Init (readonly, ()) |> push
+  let init ~readonly _path _res =
+    let readonly = match readonly with Some true -> true | _ -> false in
+    setup_writer () ;
+    Def.Init (readonly, ()) |> push
 
   let patch_context (_, x) =
     Def.Patch_context_enter x |> push ;
     fun res ->
       let res = match res with Error _ -> Error () | Ok (_, res) -> Ok res in
       Def.Patch_context_exit (x, res) |> push
+
+  let restore_context _ ~expected_context_hash:_ ~nb_context_elements:_ ~fd:_ =
+    Lwt.return @@ fun _res ->
+    Def.Unhandled Recorder.Restore_context |> push ;
+    Lwt.return_unit
+
+  let dump_context _ _ ~fd:_ =
+    let before = system_wide_now () in
+    Lwt.return @@
+    fun _res ->
+      let after = system_wide_now () in
+      Def.Dump_context {before; after} |> push;
+      Lwt.return_unit
+
 
   let unhandled name _res = Def.Unhandled name |> push
 end

@@ -23,10 +23,27 @@
 (*                                                                           *)
 (*****************************************************************************)
 
-module Context = Context
-module Context_dump = Context_dump
-module Context_impl = Context_impl
+type config = {
+  block_count : int option;
+  startup_store_type : [`Fresh | `Copy_from of string];
+  replayable_trace_path : string;
+  artefacts_dir : string;
+  keep_store : bool;
+  keep_stats_trace : bool;
+  no_summary : bool;
+  empty_blobs : bool;
+  stats_trace_message : string option;
+  no_pp_summary : bool;
+}
 
-module Internal_for_tests = struct
-  module Utils = Utils
+module type Config = sig
+  val v : config
+end
+
+module type Sigs = sig
+  type nonrec config = config
+
+  module Make (Impl : Tezos_context_sigs.Context.S) (Conf : Config) : sig
+    val run : unit -> unit Lwt.t
+  end
 end

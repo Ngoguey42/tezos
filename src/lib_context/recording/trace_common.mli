@@ -1,26 +1,38 @@
-(*
- * Copyright (c) 2018-2021 Tarides <contact@tarides.com>
- *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- *)
+(*****************************************************************************)
+(*                                                                           *)
+(* Open Source License                                                       *)
+(* Copyright (c) 2021-2022 Tarides <contact@tarides.com>                     *)
+(*                                                                           *)
+(* Permission is hereby granted, free of charge, to any person obtaining a   *)
+(* copy of this software and associated documentation files (the "Software"),*)
+(* to deal in the Software without restriction, including without limitation *)
+(* the rights to use, copy, modify, merge, publish, distribute, sublicense,  *)
+(* and/or sell copies of the Software, and to permit persons to whom the     *)
+(* Software is furnished to do so, subject to the following conditions:      *)
+(*                                                                           *)
+(* The above copyright notice and this permission notice shall be included   *)
+(* in all copies or substantial portions of the Software.                    *)
+(*                                                                           *)
+(* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR*)
+(* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,  *)
+(* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL   *)
+(* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER*)
+(* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING   *)
+(* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER       *)
+(* DEALINGS IN THE SOFTWARE.                                                 *)
+(*                                                                           *)
+(*****************************************************************************)
 
 module Seq : sig
   include module type of Stdlib.Seq
 
   module Custom : sig
     val take : int -> 'a Seq.t -> 'a list
+
     val mapi64 : 'a Seq.t -> (int64 * 'a) Seq.t
+
     val take_up_to : is_last:('a -> bool) -> 'a Seq.t -> 'a Seq.t * 'a list
+
     val take_until : is_last:('a -> bool) -> 'a Seq.t -> 'a Seq.t
   end
 end
@@ -60,43 +72,44 @@ module Parallel_folders : sig
 
   type ('row, 'acc, 'v) folder
 
+  (** Create one folder to be passed to an open parallel folder using [|+]. *)
   val folder :
     'acc -> ('acc -> 'row -> 'acc) -> ('acc -> 'v) -> ('row, 'acc, 'v) folder
-  (** Create one folder to be passed to an open parallel folder using [|+]. *)
 
   (** Section 2/3 - Open parallel folder *)
 
   type ('res, 'row, 'v) folders
+
   type ('res, 'row, 'f, 'rest) open_t
 
-  val open_ : 'f -> ('res, 'row, 'f, 'f) open_t
   (** Start building a parallel folder. *)
+  val open_ : 'f -> ('res, 'row, 'f, 'f) open_t
 
+  (** Add a folder to an open parallel folder. *)
   val app :
     ('res, 'row, 'f, 'v -> 'rest) open_t ->
     ('row, 'acc, 'v) folder ->
     ('res, 'row, 'f, 'rest) open_t
-  (** Add a folder to an open parallel folder. *)
 
+  (** Alias for [app]. *)
   val ( |+ ) :
     ('res, 'row, 'f, 'v -> 'rest) open_t ->
     ('row, 'acc, 'v) folder ->
     ('res, 'row, 'f, 'rest) open_t
-  (** Alias for [app]. *)
 
   (** Section 3/3 - Closed parallel folder *)
 
   type ('res, 'row) t
 
-  val seal : ('res, 'row, 'f, 'res) open_t -> ('res, 'row) t
   (** Stop building a parallel folder.
 
       Gotcha: It may seal a partially applied [f]. *)
+  val seal : ('res, 'row, 'f, 'res) open_t -> ('res, 'row) t
 
-  val accumulate : ('res, 'row) t -> 'row -> ('res, 'row) t
   (** Forward a row to all registered functional folders. *)
+  val accumulate : ('res, 'row) t -> 'row -> ('res, 'row) t
 
-  val finalise : ('res, 'row) t -> 'res
   (** Finalise all folders and pass their result to the user-defined function
       provided to [open_]. *)
+  val finalise : ('res, 'row) t -> 'res
 end
