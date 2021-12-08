@@ -15,11 +15,12 @@
  *)
 
 type histo = (float * int) list [@@deriving repr]
+
 type curve = float list [@@deriving repr]
 
 let snap_to_integer ~significant_digits v =
   if significant_digits < 0 then
-    invalid_arg "significant_digits should be greater or equal to zero.";
+    invalid_arg "significant_digits should be greater or equal to zero." ;
   if not @@ Float.is_finite v then v
   else if Float.is_integer v then v
   else
@@ -30,10 +31,10 @@ let snap_to_integer ~significant_digits v =
       v
     else
       let round_distance = Float.abs (v -. v') in
-      assert (round_distance <= 0.5);
+      assert (round_distance <= 0.5) ;
       (* The smaller [round_distance], the greater [significant_digits']. *)
       let significant_digits' = -.Float.log10 round_distance in
-      assert (significant_digits' > 0.);
+      assert (significant_digits' > 0.) ;
       if significant_digits' >= significant_digits then v' else v
 
 let pp_six_digits_with_spacer ppf v =
@@ -56,7 +57,8 @@ let create_pp_real ?(significant_digits = 7) examples =
         if not @@ Float.is_finite acc then v
         else if not @@ Float.is_finite v then acc
         else Float.abs v |> max acc)
-      Float.neg_infinity examples
+      Float.neg_infinity
+      examples
   in
   let finite_pp =
     if absmax /. 1e12 >= 10. then fun ppf v ->
@@ -85,7 +87,8 @@ let create_pp_seconds examples =
         if not @@ Float.is_finite acc then v
         else if not @@ Float.is_finite v then acc
         else Float.abs v |> max acc)
-      Float.neg_infinity examples
+      Float.neg_infinity
+      examples
   in
   let finite_pp =
     if absmax >= 60. then fun ppf v -> Mtime.Span.pp_float_s ppf v
@@ -112,7 +115,7 @@ let pp_percent ppf v =
   else if v < 1000. then Format.fprintf ppf "%3.0fx" v
   else if v < 9.5e9 then (
     let long_repr = Printf.sprintf "%.0e" v in
-    assert (String.length long_repr = 5);
+    assert (String.length long_repr = 5) ;
     Format.fprintf ppf "%ce%cx" long_repr.[0] long_repr.[4])
   else Format.fprintf ppf "++++"
 
@@ -126,9 +129,9 @@ module Exponential_moving_average = struct
   }
 
   let create ?(relevance_threshold = 1.) momentum =
-    if momentum < 0. || momentum >= 1. then invalid_arg "Wrong momentum";
+    if momentum < 0. || momentum >= 1. then invalid_arg "Wrong momentum" ;
     if relevance_threshold < 0. || relevance_threshold > 1. then
-      invalid_arg "Wrong relevance_threshold";
+      invalid_arg "Wrong relevance_threshold" ;
     {
       momentum;
       relevance_threshold;
@@ -138,17 +141,20 @@ module Exponential_moving_average = struct
     }
 
   let from_half_life ?relevance_threshold hl =
-    if hl < 0. then invalid_arg "Wrong half life";
+    if hl < 0. then invalid_arg "Wrong half life" ;
     create ?relevance_threshold (if hl = 0. then 0. else log 0.5 /. hl |> exp)
 
   let from_half_life_ratio ?relevance_threshold hl_ratio step_count =
-    if hl_ratio < 0. then invalid_arg "Wrong half life ratio";
-    if step_count < 0. then invalid_arg "Wront step count";
+    if hl_ratio < 0. then invalid_arg "Wrong half life ratio" ;
+    if step_count < 0. then invalid_arg "Wront step count" ;
     step_count *. hl_ratio |> from_half_life ?relevance_threshold
 
   let momentum ema = ema.momentum
+
   let hidden_state ema = ema.hidden_state
+
   let void_fraction ema = ema.void_fraction
+
   let is_relevant ema = ema.void_fraction < ema.relevance_threshold
 
   let peek_exn ema =
@@ -169,10 +175,10 @@ module Exponential_moving_average = struct
       (* [update] decreases the quantity of "void". *)
       ema.momentum *. ema.void_fraction
     in
-    { ema with hidden_state; void_fraction }
+    {ema with hidden_state; void_fraction}
 
   let update_batch ema sample sample_size =
-    if sample_size <= 0. then invalid_arg "Wrong sample_size";
+    if sample_size <= 0. then invalid_arg "Wrong sample_size" ;
     let momentum = ema.momentum ** sample_size in
     let opp_momentum = 1. -. momentum in
     (* From this point, the code is identical to [update]. *)
@@ -180,7 +186,7 @@ module Exponential_moving_average = struct
       (ema.hidden_state *. momentum) +. (sample *. opp_momentum)
     in
     let void_fraction = ema.void_fraction *. momentum in
-    { ema with hidden_state; void_fraction }
+    {ema with hidden_state; void_fraction}
 
   (** [peek ema] is equal to [forget ema |> peek]. Modulo floating point
       imprecisions and relevance changes.
@@ -211,16 +217,16 @@ module Exponential_moving_average = struct
                 [forget] does: [ema.m * ema.vf + ema.opp_m * 1]. *)
       (ema.momentum *. ema.void_fraction) +. ema.opp_momentum
     in
-    { ema with hidden_state; void_fraction }
+    {ema with hidden_state; void_fraction}
 
   let forget_batch ema sample_size =
-    if sample_size <= 0. then invalid_arg "Wrong sample_size";
+    if sample_size <= 0. then invalid_arg "Wrong sample_size" ;
     let momentum = ema.momentum ** sample_size in
     let opp_momentum = 1. -. momentum in
     (* From this point, the code is identical to [forget]. *)
     let hidden_state = ema.hidden_state *. momentum in
     let void_fraction = (ema.void_fraction *. momentum) +. opp_momentum in
-    { ema with hidden_state; void_fraction }
+    {ema with hidden_state; void_fraction}
 
   let map ?relevance_threshold momentum vec0 =
     List.fold_left
@@ -230,17 +236,16 @@ module Exponential_moving_average = struct
         (ema, v1 :: rev_result))
       (create ?relevance_threshold momentum, [])
       vec0
-    |> snd
-    |> List.rev
+    |> snd |> List.rev
 end
 
 module Resample = struct
   let should_sample ~i0 ~len0 ~i1 ~len1 =
-    assert (len0 >= 2);
-    assert (len1 >= 2);
-    assert (i0 < len0);
-    assert (i0 >= 0);
-    assert (i1 >= 0);
+    assert (len0 >= 2) ;
+    assert (len1 >= 2) ;
+    assert (i0 < len0) ;
+    assert (i0 >= 0) ;
+    assert (i1 >= 0) ;
     if i1 >= len1 then `Out_of_bounds
     else
       let i0 = float_of_int i0 in
@@ -255,13 +260,13 @@ module Resample = struct
         let where_in_interval =
           (progress1 -. progress0_left) /. (progress0_right -. progress0_left)
         in
-        assert (where_in_interval > 0.);
-        assert (where_in_interval <= 1.);
+        assert (where_in_interval > 0.) ;
+        assert (where_in_interval <= 1.) ;
         `Inside where_in_interval)
       else `After
 
   type acc = {
-    mode : [ `Interpolate | `Next_neighbor ];
+    mode : [`Interpolate | `Next_neighbor];
     len0 : int;
     len1 : int;
     i0 : int;
@@ -271,23 +276,22 @@ module Resample = struct
   }
 
   let create_acc mode ~len0 ~len1 ~v00 =
-    let mode = (mode :> [ `Interpolate | `Next_neighbor ]) in
-    if len0 < 2 then invalid_arg "Can't resample curves below 2 points";
-    if len1 < 2 then invalid_arg "Can't resample curves below 2 points";
-    { mode; len0; len1; i0 = 1; i1 = 1; prev_v0 = v00; rev_samples = [ v00 ] }
+    let mode = (mode :> [`Interpolate | `Next_neighbor]) in
+    if len0 < 2 then invalid_arg "Can't resample curves below 2 points" ;
+    if len1 < 2 then invalid_arg "Can't resample curves below 2 points" ;
+    {mode; len0; len1; i0 = 1; i1 = 1; prev_v0 = v00; rev_samples = [v00]}
 
-  let accumulate ({ mode; len0; len1; i0; i1; prev_v0; rev_samples } as acc) v0
-      =
-    assert (i0 >= 1);
-    assert (i1 >= 1);
-    if i0 >= len0 then Fmt.failwith "Accumulate called to much";
-    if i1 >= len1 then Fmt.failwith "Accumulate called to much";
+  let accumulate ({mode; len0; len1; i0; i1; prev_v0; rev_samples} as acc) v0 =
+    assert (i0 >= 1) ;
+    assert (i1 >= 1) ;
+    if i0 >= len0 then Fmt.failwith "Accumulate called to much" ;
+    if i1 >= len1 then Fmt.failwith "Accumulate called to much" ;
     let rec aux i1 rev_samples =
       match should_sample ~len1 ~i0 ~len0 ~i1 with
       | `Inside where_inside ->
           if i1 = len1 - 1 then (
-            assert (i0 = len0 - 1);
-            assert (where_inside = 1.));
+            assert (i0 = len0 - 1) ;
+            assert (where_inside = 1.)) ;
           let v1 =
             match mode with
             | `Next_neighbor -> v0
@@ -300,21 +304,22 @@ module Resample = struct
       | `After -> (i1, rev_samples)
       | `Before -> assert false
       | `Out_of_bounds ->
-          assert (i0 = len0 - 1);
-          assert (i1 = len1);
+          assert (i0 = len0 - 1) ;
+          assert (i1 = len1) ;
           (i1, rev_samples)
     in
-    let i1, rev_samples = aux i1 rev_samples in
-    { acc with i0 = i0 + 1; i1; prev_v0 = v0; rev_samples }
+    let (i1, rev_samples) = aux i1 rev_samples in
+    {acc with i0 = i0 + 1; i1; prev_v0 = v0; rev_samples}
 
-  let finalise { len1; rev_samples; _ } =
-    if List.length rev_samples <> len1 then Fmt.failwith "Finalise called too soon";
+  let finalise {len1; rev_samples; _} =
+    if List.length rev_samples <> len1 then
+      Fmt.failwith "Finalise called too soon" ;
     List.rev rev_samples
 
   let resample_vector mode vec0 len1 =
     let len0 = List.length vec0 in
-    if len0 < 2 then invalid_arg "Can't resample curves below 2 points";
-    let v00, vec0 =
+    if len0 < 2 then invalid_arg "Can't resample curves below 2 points" ;
+    let (v00, vec0) =
       match vec0 with hd :: tl -> (hd, tl) | _ -> assert false
     in
     let acc = create_acc mode ~len0 ~len1 ~v00 in
@@ -349,16 +354,16 @@ module Variable_summary = struct
     in_period_count : int;
     out_sample_count : int;
     evolution_resampling_mode :
-      [ `Interpolate | `Prev_neighbor | `Next_neighbor ];
-    scale : [ `Linear | `Log ];
+      [`Interpolate | `Prev_neighbor | `Next_neighbor];
+    scale : [`Linear | `Log];
   }
 
   let create_acc ~evolution_smoothing ~evolution_resampling_mode
       ~distribution_bin_count ~scale ~in_period_count ~out_sample_count =
     if in_period_count < 2 then
-      invalid_arg "in_period_count should be greater than 1";
+      invalid_arg "in_period_count should be greater than 1" ;
     if out_sample_count < 2 then
-      invalid_arg "out_sample_count should be greater than 1";
+      invalid_arg "out_sample_count should be greater than 1" ;
     {
       first_value = Float.nan;
       last_value = Float.nan;
@@ -372,7 +377,8 @@ module Variable_summary = struct
         (match evolution_smoothing with
         | `None -> Exponential_moving_average.create 0.
         | `Ema (half_life_ratio, relevance_threshold) ->
-            Exponential_moving_average.from_half_life_ratio ~relevance_threshold
+            Exponential_moving_average.from_half_life_ratio
+              ~relevance_threshold
               half_life_ratio
               (float_of_int in_period_count));
       next_in_idx = 0;
@@ -388,7 +394,7 @@ module Variable_summary = struct
     let xs = List.filter (fun v -> not (Float.is_nan v)) xs in
     let i = acc.next_in_idx in
     let sample_count = List.length xs |> float_of_int in
-    assert (i < acc.in_period_count);
+    assert (i < acc.in_period_count) ;
 
     let accumulate_in_sample
         (first, last, ((topv, _) as top), ((botv, _) as bot), histo, ma) v =
@@ -413,8 +419,9 @@ module Variable_summary = struct
       in
       (first, last, top, bot, histo, ma)
     in
-    let first_value, last_value, max_value, min_value, distribution, ma =
-      List.fold_left accumulate_in_sample
+    let (first_value, last_value, max_value, min_value, distribution, ma) =
+      List.fold_left
+        accumulate_in_sample
         ( acc.first_value,
           acc.last_value,
           acc.max_value,
@@ -426,11 +433,14 @@ module Variable_summary = struct
     let ma =
       if sample_count = 0. then Exponential_moving_average.forget ma else ma
     in
-    let rev_evolution, next_out_idx =
+    let (rev_evolution, next_out_idx) =
       let rec aux rev_samples next_out_idx =
         match
-          Resample.should_sample ~i0:i ~len0:acc.in_period_count
-            ~i1:next_out_idx ~len1:acc.out_sample_count
+          Resample.should_sample
+            ~i0:i
+            ~len0:acc.in_period_count
+            ~i1:next_out_idx
+            ~len1:acc.out_sample_count
         with
         | `Before -> assert false
         | `Inside where_in_block ->
@@ -438,8 +448,8 @@ module Variable_summary = struct
               let v_after = Exponential_moving_average.peek_or_nan ma in
               if where_in_block = 1. then v_after
               else (
-                assert (where_in_block > 0.);
-                assert (next_out_idx > 0);
+                assert (where_in_block > 0.) ;
+                assert (next_out_idx > 0) ;
                 let v_before = Exponential_moving_average.peek_or_nan acc.ma in
                 match acc.evolution_resampling_mode with
                 | `Prev_neighbor -> v_before
@@ -469,9 +479,9 @@ module Variable_summary = struct
     }
 
   let finalise acc =
-    assert (acc.next_out_idx = acc.out_sample_count);
-    assert (acc.next_out_idx = List.length acc.rev_evolution);
-    assert (acc.next_in_idx = acc.in_period_count);
+    assert (acc.next_out_idx = acc.out_sample_count) ;
+    assert (acc.next_out_idx = List.length acc.rev_evolution) ;
+    assert (acc.next_in_idx = acc.in_period_count) ;
     let f = match acc.scale with `Linear -> Fun.id | `Log -> Float.exp in
     let distribution =
       let open Bentov in

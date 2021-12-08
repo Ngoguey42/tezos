@@ -1178,7 +1178,7 @@ let summarise' header block_count ends_with_close (row_seq : Def.row Seq.t) =
       block_count;
       curves_sample_count = Conf.curves_sample_count;
       moving_average_half_life_ratio = Conf.moving_average_half_life_ratio;
-      header = header;
+      header;
       (* config = header.config; *)
       (* hostname = header.hostname; *)
       (* word_size = header.word_size; *)
@@ -1234,8 +1234,7 @@ let summarise ?info trace_stats_path =
              (fun ((commit_count, has_close) as acc) op ->
                if has_close then acc
                else
-                 (
-                   (* Fmt.epr "%a\n%!" (Repr.pp Def.row_t) op; *)
+                 ( (* Fmt.epr "%a\n%!" (Repr.pp Def.row_t) op; *)
                    (match op with
                    | `Commit _ -> commit_count + 1
                    | _ -> commit_count),

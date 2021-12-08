@@ -19,8 +19,11 @@ module Seq : sig
 
   module Custom : sig
     val take : int -> 'a Seq.t -> 'a list
+
     val mapi64 : 'a Seq.t -> (int64 * 'a) Seq.t
+
     val take_up_to : is_last:('a -> bool) -> 'a Seq.t -> 'a Seq.t * 'a list
+
     val take_until : is_last:('a -> bool) -> 'a Seq.t -> 'a Seq.t
   end
 end
@@ -60,43 +63,44 @@ module Parallel_folders : sig
 
   type ('row, 'acc, 'v) folder
 
+  (** Create one folder to be passed to an open parallel folder using [|+]. *)
   val folder :
     'acc -> ('acc -> 'row -> 'acc) -> ('acc -> 'v) -> ('row, 'acc, 'v) folder
-  (** Create one folder to be passed to an open parallel folder using [|+]. *)
 
   (** Section 2/3 - Open parallel folder *)
 
   type ('res, 'row, 'v) folders
+
   type ('res, 'row, 'f, 'rest) open_t
 
-  val open_ : 'f -> ('res, 'row, 'f, 'f) open_t
   (** Start building a parallel folder. *)
+  val open_ : 'f -> ('res, 'row, 'f, 'f) open_t
 
+  (** Add a folder to an open parallel folder. *)
   val app :
     ('res, 'row, 'f, 'v -> 'rest) open_t ->
     ('row, 'acc, 'v) folder ->
     ('res, 'row, 'f, 'rest) open_t
-  (** Add a folder to an open parallel folder. *)
 
+  (** Alias for [app]. *)
   val ( |+ ) :
     ('res, 'row, 'f, 'v -> 'rest) open_t ->
     ('row, 'acc, 'v) folder ->
     ('res, 'row, 'f, 'rest) open_t
-  (** Alias for [app]. *)
 
   (** Section 3/3 - Closed parallel folder *)
 
   type ('res, 'row) t
 
-  val seal : ('res, 'row, 'f, 'res) open_t -> ('res, 'row) t
   (** Stop building a parallel folder.
 
       Gotcha: It may seal a partially applied [f]. *)
+  val seal : ('res, 'row, 'f, 'res) open_t -> ('res, 'row) t
 
-  val accumulate : ('res, 'row) t -> 'row -> ('res, 'row) t
   (** Forward a row to all registered functional folders. *)
+  val accumulate : ('res, 'row) t -> 'row -> ('res, 'row) t
 
-  val finalise : ('res, 'row) t -> 'res
   (** Finalise all folders and pass their result to the user-defined function
       provided to [open_]. *)
+  val finalise : ('res, 'row) t -> 'res
 end

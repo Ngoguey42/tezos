@@ -24,14 +24,13 @@ let summarise path =
   Summary.(summarise path |> Fmt.pr "%a\n" (Irmin.Type.pp_json t))
 
 let summary_of_path p =
-  if Filename.extension p <> ".json" then failwith "Input file should be JSON";
+  if Filename.extension p <> ".json" then failwith "Input file should be JSON" ;
   let chan = open_in_bin p in
   let raw = really_input_string chan (in_channel_length chan) in
-  close_in chan;
+  close_in chan ;
   match Irmin.Type.of_json_string Summary.t raw with
   | Error (`Msg msg) ->
-      Fmt.invalid_arg
-        "File \"%s\" should be a json summary.\nError: %s" p msg
+      Fmt.invalid_arg "File \"%s\" should be a json summary.\nError: %s" p msg
   | Ok s -> s
 
 let pp name_per_path paths cols_opt =
@@ -46,16 +45,15 @@ let pp name_per_path paths cols_opt =
   Fmt.pr "%a\n" (Trace_stats_summary_pp.pp col_count) (name_per_path, summaries)
 
 let pp paths named_paths cols_opt =
-  let name_per_path, paths =
+  let (name_per_path, paths) =
     List.mapi (fun i v -> (string_of_int i, v)) paths @ named_paths
     |> List.split
   in
   if List.length paths = 0 then
-    invalid_arg "manage_stats.exe pp: At least one path should be provided";
+    invalid_arg "manage_stats.exe pp: At least one path should be provided" ;
   pp name_per_path paths cols_opt
 
-let summary_to_cb _path =
-  assert false
+let summary_to_cb _path = assert false
 
 open Cmdliner
 
@@ -75,8 +73,11 @@ let term_pp =
   let arg_named_files =
     let open Arg in
     let a =
-      opt_all (pair string non_dir_file) []
-        (info [ "f"; "named-file" ]
+      opt_all
+        (pair string non_dir_file)
+        []
+        (info
+           ["f"; "named-file"]
            ~doc:
              "A comma-separated pair of short name / path to trace or summary. \
               The short name is used to tag the rows inside the pretty printed \
@@ -87,7 +88,7 @@ let term_pp =
   let arg_columns =
     let open Arg in
     let doc =
-      Arg.info ~doc:"Number of sample columns to show." [ "c"; "columns" ]
+      Arg.info ~doc:"Number of sample columns to show." ["c"; "columns"]
     in
     let a = opt (some int) None doc in
     value a
@@ -104,7 +105,9 @@ let term_cb =
 let () =
   let man = [] in
   let i =
-    Term.info ~man ~doc:"Processing of stats traces and stats trace summaries."
+    Term.info
+      ~man
+      ~doc:"Processing of stats traces and stats trace summaries."
       "stats"
   in
 
@@ -140,5 +143,6 @@ let () =
     Term.info ~man ~doc:"Summary JSON to Continous Benchmarks JSON" "cb"
   in
   Term.exit
-  @@ Term.eval_choice (term_summarise, i)
-       [ (term_summarise, j); (term_pp, k); (term_cb, l) ]
+  @@ Term.eval_choice
+       (term_summarise, i)
+       [(term_summarise, j); (term_pp, k); (term_cb, l)]
