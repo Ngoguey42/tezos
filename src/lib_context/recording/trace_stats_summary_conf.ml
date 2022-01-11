@@ -17,7 +17,6 @@
 (** Stats trace summary configuration. *)
 
 let histo_bin_count = 16
-
 let curves_sample_count = 21
 (* TODO: CHANGE ME BACK *)
 (* let curves_sample_count = 201 *)

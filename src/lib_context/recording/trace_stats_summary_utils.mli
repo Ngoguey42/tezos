@@ -1,9 +1,9 @@
 (** Utilities to summarise stats traces. *)
 
 type histo = (float * int) list [@@deriving repr]
-
 type curve = float list [@@deriving repr]
 
+val snap_to_integer : significant_digits:int -> float -> float
 (** [snap_to_integer ~significant_digits v] is [Float.round v] if [v] is close
     to [Float.round v], otherwise the result is [v]. [significant_digits]
     defines how close things are.
@@ -15,8 +15,9 @@ type curve = float list [@@deriving repr]
 
     When [significant_digits] is [4] and [v] is [42.001], [snap_to_integer v] is
     [v]. *)
-val snap_to_integer : significant_digits:int -> float -> float
 
+val create_pp_real :
+  ?significant_digits:int -> float list -> Format.formatter -> float -> unit
 (** [create_pp_real examples] is [pp_real], a float pretty-printer that adapts
     to the [examples] shown to it.
 
@@ -27,16 +28,15 @@ val snap_to_integer : significant_digits:int -> float -> float
     examples that aren't integer, but that are very close to be a integers are
     counted as integers. [significant_digits] is used internally to snap the
     examples to integers. *)
-val create_pp_real :
-  ?significant_digits:int -> float list -> Format.formatter -> float -> unit
 
+val create_pp_seconds : float list -> Format.formatter -> float -> unit
 (** [create_pp_seconds examples] is [pp_seconds], a time span pretty-printer
     that adapts to the [examples] shown to it.
 
     It is highly recommended, but not mandatory, for all the numbers passed to
     [pp_seconds] to be included in [examples]. *)
-val create_pp_seconds : float list -> Format.formatter -> float -> unit
 
+val pp_percent : Format.formatter -> float -> unit
 (** Pretty prints a percent in a way that always takes 4 chars.
 
     Examples: [0.] is ["  0%"], [0.00001] is ["0.0%"], [0.003] is ["0.3%"],
@@ -44,12 +44,12 @@ val create_pp_seconds : float list -> Format.formatter -> float -> unit
     ["4e6x"] and [1e100] is ["++++"].
 
     Negative inputs are undefined. *)
-val pp_percent : Format.formatter -> float -> unit
 
 (** Functional Exponential Moving Average (EMA). *)
 module Exponential_moving_average : sig
   type t
 
+  val create : ?relevance_threshold:float -> float -> t
   (** [create ?relevance_threshold m] is [ema], a functional exponential moving
       average. [1. -. m] is the fraction of what's forgotten of the past during
       each [update].
@@ -111,53 +111,50 @@ module Exponential_moving_average : sig
       [ema(a) * ema(b)], but [exp(ema(log(a * b)))] is
       [exp(ema(log(a))) * exp(ema(log(b)))] when all values in [a] and [b] are
       strictly greater than 0. *)
-  val create : ?relevance_threshold:float -> float -> t
 
+  val from_half_life : ?relevance_threshold:float -> float -> t
   (** [from_half_life hl] is [ema], a functional exponential moving average.
       After [hl] calls to [update], half of the past is forgotten. *)
-  val from_half_life : ?relevance_threshold:float -> float -> t
 
+  val from_half_life_ratio : ?relevance_threshold:float -> float -> float -> t
   (** [from_half_life_ratio hl_ratio step_count] is [ema], a functional
       exponential moving average. After [hl_ratio * step_count] calls to
       [update], half of the past is forgotten. *)
-  val from_half_life_ratio : ?relevance_threshold:float -> float -> float -> t
 
+  val map : ?relevance_threshold:float -> float -> float list -> float list
   (** [map momentum vec0] is [vec1], a list of float with the same length as
       [vec0], where the values have been locally averaged.
 
       The first element of [vec1] is also the first element of [vec0]. *)
-  val map : ?relevance_threshold:float -> float -> float list -> float list
 
+  val update : t -> float -> t
   (** Feed a new sample to the EMA. If the sample is not finite (i.e., NaN or
       infinite), the represented won't be either. *)
-  val update : t -> float -> t
 
+  val update_batch : t -> float -> float -> t
   (** [update_batch ema p s] is equivalent to calling [update] [s] times. Modulo
       floating point errors. *)
-  val update_batch : t -> float -> float -> t
 
+  val forget : t -> t
   (** [forget ema] forgets some of the past without the need for samples. The
       represented value doesn't change. *)
-  val forget : t -> t
 
+  val forget_batch : t -> float -> t
   (** [forget_batch ema s] is equivalent to calling [forget] [s] times. Modulo
       floating point errors.*)
-  val forget_batch : t -> float -> t
 
+  val is_relevant : t -> bool
   (** Indicates whether or not [peek_exn] can be called without raising an
       exception. *)
-  val is_relevant : t -> bool
 
-  (** Read the EMA value. *)
   val peek_exn : t -> float
-
   (** Read the EMA value. *)
+
   val peek_or_nan : t -> float
+  (** Read the EMA value. *)
 
   val momentum : t -> float
-
   val hidden_state : t -> float
-
   val void_fraction : t -> float
 end
 
@@ -183,6 +180,12 @@ end
 
     The first and last point of the input and output sequences are always equal. *)
 module Resample : sig
+  val should_sample :
+    i0:int ->
+    len0:int ->
+    i1:int ->
+    len1:int ->
+    [ `After | `Before | `Inside of float | `Out_of_bounds ]
   (** When resampling a 1d vector from [len0] to [len1], this function locates a
       destination point with index [i1] relative to the range [i0 - 1] excluded
       and [i0] included.
@@ -190,31 +193,28 @@ module Resample : sig
       When both [i0] and [i1] equal [0], the result is [`Inside 1.].
 
       [len0] and [len1] should be greater or equal to 2. *)
-  val should_sample :
-    i0:int ->
-    len0:int ->
-    i1:int ->
-    len1:int ->
-    [`After | `Before | `Inside of float | `Out_of_bounds]
 
   type acc
 
+  val create_acc :
+    [ `Interpolate | `Next_neighbor ] ->
+    len0:int ->
+    len1:int ->
+    v00:float ->
+    acc
   (** Creates a resampling accumulator.
 
       Requires the first point of vec0. *)
-  val create_acc :
-    [`Interpolate | `Next_neighbor] -> len0:int -> len1:int -> v00:float -> acc
 
   val accumulate : acc -> float -> acc
-
   val finalise : acc -> curve
 
+  val resample_vector :
+    [< `Interpolate | `Next_neighbor ] -> curve -> int -> curve
   (** [resample_vector mode vec0 len1] is [vec1], a curve of length [len1],
       created by resampling [vec0].
 
       It internally relies on the [should_sample] function. *)
-  val resample_vector :
-    [< `Interpolate | `Next_neighbor] -> curve -> int -> curve
 end
 
 (** Functional summary for a variable that has zero or more occurences per
@@ -315,15 +315,14 @@ module Variable_summary : sig
   type acc
 
   val create_acc :
-    evolution_smoothing:[`Ema of float * float | `None] ->
-    evolution_resampling_mode:[`Interpolate | `Next_neighbor | `Prev_neighbor] ->
+    evolution_smoothing:[ `Ema of float * float | `None ] ->
+    evolution_resampling_mode:[ `Interpolate | `Next_neighbor | `Prev_neighbor ] ->
     distribution_bin_count:int ->
-    scale:[`Linear | `Log] ->
+    scale:[ `Linear | `Log ] ->
     in_period_count:int ->
     out_sample_count:int ->
     acc
 
   val accumulate : acc -> float list -> acc
-
   val finalise : acc -> t
 end

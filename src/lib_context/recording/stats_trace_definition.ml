@@ -175,7 +175,8 @@ module V1 = struct
       | `Add
       | `Add_tree
       | `Remove
-      | `Fold ]
+      | `Fold
+      ]
     [@@deriving repr]
 
     type tag =

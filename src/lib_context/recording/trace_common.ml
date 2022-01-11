@@ -36,7 +36,7 @@ module Seq = struct
       let i = ref (-1L) in
       Seq.map
         (fun v ->
-          i := Int64.succ !i ;
+          i := Int64.succ !i;
           (!i, v))
         s
 
@@ -50,7 +50,7 @@ module Seq = struct
             let rev_l = v :: rev_l in
             if is_last v then (seq, rev_l) else aux seq rev_l
       in
-      let (seq, rev_l) = aux seq [] in
+      let seq, rev_l = aux seq [] in
       (seq, List.rev rev_l)
 
     let take_until ~is_last seq =
@@ -60,8 +60,7 @@ module Seq = struct
           match seq () with
           | Seq.Nil -> None
           | Seq.Cons (v, rest) ->
-              if is_last v then Some (v, (true, rest))
-              else Some (v, (stop, rest))
+              if is_last v then Some (v, (true, rest)) else Some (v, (stop, rest))
       in
       Seq.unfold aux (false, seq)
   end
@@ -106,7 +105,7 @@ module Parallel_folders = struct
     finalise : 'acc -> 'v;
   }
 
-  let folder acc accumulate finalise = {acc; accumulate; finalise}
+  let folder acc accumulate finalise = { acc; accumulate; finalise }
 
   type ('res, 'row, 'v) folders =
     | F0 : ('res, 'row, 'res) folders
@@ -133,7 +132,7 @@ module Parallel_folders = struct
 
   let seal : type res row f. (res, row, f, res) open_t -> (res, row) t =
    fun open_t ->
-    let (constructor, folders) = open_t F0 in
+    let constructor, folders = open_t F0 in
     T (constructor, folders)
 
   let accumulate : type res row. (res, row) t -> row -> (res, row) t =
@@ -147,9 +146,9 @@ module Parallel_folders = struct
           let t' = aux t in
           (* Avoid reallocating [F1] and [folder] when possible. *)
           match (acc == acc', t == t') with
-          | (true, true) -> f
-          | (true, false) -> F1 (folder, t')
-          | (false, (true | false)) -> F1 ({folder with acc = acc'}, t'))
+          | true, true -> f
+          | true, false -> F1 (folder, t')
+          | false, (true | false) -> F1 ({ folder with acc = acc' }, t'))
     in
     let folders = aux folders in
     T (constructor, folders)

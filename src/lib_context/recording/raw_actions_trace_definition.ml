@@ -276,8 +276,7 @@ include Trace_auto_file_format.Make (struct
 
   let get_version_converter = function
     | 0 ->
-        raise
-          (Misc.Suspicious_trace_file "Deprecated Raw_actions_trace version 0")
+        raise (Misc.Suspicious_trace_file "Deprecated Raw_actions_trace version 0")
     | 1 ->
         Trace_auto_file_format.create_version_converter
           ~header_t:V1.header_t
