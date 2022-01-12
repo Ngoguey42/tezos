@@ -35,10 +35,23 @@ module V0 = struct
 
   (** Stats extracted from [Irmin_pack.Stats.get ()]. *)
   type pack = {
-    finds : int;
+    finds_total : int;
+    finds_from_staging : int;
+    finds_from_lru : int;
+    finds_from_pack_direct : int;
+    finds_from_pack_indexed : int;
     cache_misses : int;
     appended_hashes : int;
     appended_offsets : int;
+    inode_add : int;
+    inode_remove : int;
+    inode_of_seq : int;
+    inode_of_raw : int;
+    inode_rec_add : int;
+    inode_rec_remove : int;
+    inode_to_binv : int;
+    inode_decode_bin : int;
+    inode_encode_bin : int;
   }
   [@@deriving repr]
 

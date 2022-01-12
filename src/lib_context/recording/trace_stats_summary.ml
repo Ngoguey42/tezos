@@ -308,10 +308,23 @@ type bag_stat = {
 [@@deriving repr]
 
 type pack = {
-  finds : bag_stat;
+  finds_total : bag_stat;
+  finds_from_staging : bag_stat;
+  finds_from_lru : bag_stat;
+  finds_from_pack_direct : bag_stat;
+  finds_from_pack_indexed : bag_stat;
   cache_misses : bag_stat;
   appended_hashes : bag_stat;
   appended_offsets : bag_stat;
+  inode_add : bag_stat;
+  inode_remove : bag_stat;
+  inode_of_seq : bag_stat;
+  inode_of_raw : bag_stat;
+  inode_rec_add : bag_stat;
+  inode_rec_remove : bag_stat;
+  inode_to_binv : bag_stat;
+  inode_decode_bin : bag_stat;
+  inode_encode_bin : bag_stat;
 }
 [@@deriving repr]
 
@@ -947,17 +960,56 @@ let summarise' header block_count ends_with_close (row_seq : Def.row Seq.t) =
   in
 
   let pack_folder =
-    let construct finds cache_misses appended_hashes appended_offsets =
-      {finds; cache_misses; appended_hashes; appended_offsets}
+    let construct finds_total finds_from_staging finds_from_lru
+        finds_from_pack_direct finds_from_pack_indexed cache_misses
+        appended_hashes appended_offsets inode_add inode_remove inode_of_seq
+        inode_of_raw inode_rec_add inode_rec_remove inode_to_binv
+        inode_decode_bin inode_encode_bin =
+      {
+        finds_total;
+        finds_from_staging;
+        finds_from_lru;
+        finds_from_pack_direct;
+        finds_from_pack_indexed;
+        cache_misses;
+        appended_hashes;
+        appended_offsets;
+        inode_add;
+        inode_remove;
+        inode_of_seq;
+        inode_of_raw;
+        inode_rec_add;
+        inode_rec_remove;
+        inode_to_binv;
+        inode_decode_bin;
+        inode_encode_bin;
+      }
     in
+
     let acc0 =
       let open Trace_common.Parallel_folders in
       let ofi = float_of_int in
       open_ construct
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.finds)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.finds_total)
+      |+ bs_folder_of_bag_getter (fun bag ->
+             ofi bag.Def.pack.finds_from_staging)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.finds_from_lru)
+      |+ bs_folder_of_bag_getter (fun bag ->
+             ofi bag.Def.pack.finds_from_pack_direct)
+      |+ bs_folder_of_bag_getter (fun bag ->
+             ofi bag.Def.pack.finds_from_pack_indexed)
       |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.cache_misses)
       |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.appended_hashes)
       |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.appended_offsets)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_add)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_remove)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_of_seq)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_of_raw)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_rec_add)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_rec_remove)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_to_binv)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_decode_bin)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_encode_bin)
       |> seal
     in
     Trace_common.Parallel_folders.folder

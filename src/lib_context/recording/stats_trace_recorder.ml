@@ -71,23 +71,36 @@ module Writer (Impl : Tezos_context_sigs.Context.S) = struct
 
   module Bag_of_stats = struct
     let pack () =
-      (* let open Irmin_pack.Stats in *)
-      (* let v = get () in *)
-      (* TODO: maiste *)
+      let open Irmin_pack.Stats in
+      let v = get () in
+      let cache_misses = Find.cache_misses v.finds in
       Def.
         {
-          finds = 0;
-          cache_misses = 0;
-          appended_hashes = 0;
-          appended_offsets = 0;
+          finds_total = v.finds.total;
+          finds_from_staging = v.finds.from_staging;
+          finds_from_lru = v.finds.from_lru;
+          finds_from_pack_direct = v.finds.from_pack_direct;
+          finds_from_pack_indexed = v.finds.from_pack_indexed;
+          cache_misses;
+          appended_hashes = v.appended_hashes;
+          appended_offsets = v.appended_offsets;
+          inode_add = v.inode_add;
+          inode_remove = v.inode_remove;
+          inode_of_seq = v.inode_of_seq;
+          inode_of_raw = v.inode_of_raw;
+          inode_rec_add = v.inode_rec_add;
+          inode_rec_remove = v.inode_rec_remove;
+          inode_to_binv = v.inode_to_binv;
+          inode_decode_bin = v.inode_decode_bin;
+          inode_encode_bin = v.inode_encode_bin;
         }
 
     let tree () =
       (* This call directly targets [Impl], it will not be recorded *)
       let v = Impl.module_tree_stats () in
       Def.
-      {
-        (* TODO: maiste *)
+        {
+          (* TODO: maiste *)
           contents_hash = v.contents_hash;
           contents_find = v.contents_find;
           contents_add = v.contents_add;
