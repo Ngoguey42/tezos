@@ -169,7 +169,14 @@ module V0 = struct
 
   type message = string [@@deriving repr]
 
-  type tracker = Optint.Int63.t [@@deriving repr]
+  type varint63 = Optint.Int63.t [@@deriving repr]
+
+  let varint63_t =
+    let module V = Repr.Binary.Varint_int63 in
+    Repr.like ~bin:(V.encode, V.decode, Obj.magic V.sizer) varint63_t
+  (* FIXME: wait for Repr modification to support size in like *)
+
+  type tracker = varint63 [@@deriving repr]
 
   type step = string [@@deriving repr]
 

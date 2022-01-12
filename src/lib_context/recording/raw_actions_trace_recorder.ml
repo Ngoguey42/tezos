@@ -71,9 +71,16 @@ struct
 
   module Impl = Impl
 
-  type tree = Impl.tree * Optint.Int63.t
+  type varint63 = Optint.Int63.t [@@deriving repr]
 
-  type context = Impl.context * Optint.Int63.t
+  let varint63_t =
+    let module V = Repr.Binary.Varint_int63 in
+    Repr.like ~bin:(V.encode, V.decode, Obj.magic V.sizer) varint63_t
+  (* FIXME: wait for Repr modification to support size in like *)
+
+  type tree = Impl.tree * varint63
+
+  type context = Impl.context * varint63
 
   (** Write a new [row] to [writer] *)
   let push v = Def.append_row (get_writer ()) v
@@ -130,8 +137,9 @@ struct
 
     let list (_, x) ~offset ~length res =
       let count = List.length res in
-      let first_tracker = match List.nth_opt res 0 with
-        | None ->  Optint.Int63.of_int64 (-42L)
+      let first_tracker =
+        match List.nth_opt res 0 with
+        | None -> Optint.Int63.of_int64 (-42L)
         | Some (_, (_, first)) -> first
       in
       let res = Def.{first_tracker; count} in
@@ -159,7 +167,8 @@ struct
 
   let list (_, x) ~offset ~length res =
     let count = List.length res in
-    let first_tracker =      match List.nth_opt res 0 with
+    let first_tracker =
+      match List.nth_opt res 0 with
       | None -> Optint.Int63.of_int64 (-42L)
       | Some (_, (_, first)) -> first
     in
@@ -345,12 +354,10 @@ struct
 
   let dump_context _ _ ~fd:_ =
     let before = system_wide_now () in
-    Lwt.return @@
-    fun _res ->
-      let after = system_wide_now () in
-      Def.Dump_context {before; after} |> push;
-      Lwt.return_unit
-
+    Lwt.return @@ fun _res ->
+    let after = system_wide_now () in
+    Def.Dump_context {before; after} |> push ;
+    Lwt.return_unit
 
   let unhandled name _res = Def.Unhandled name |> push
 end

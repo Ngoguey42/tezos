@@ -458,9 +458,16 @@ struct
 
   module Impl = Impl
 
-  type tree = Impl.tree * Optint.Int63.t
+  type varint63 = Optint.Int63.t [@@deriving repr]
 
-  type context = Impl.context * Optint.Int63.t
+  let varint63_t =
+    let module V = Repr.Binary.Varint_int63 in
+    Repr.like ~bin:(V.encode, V.decode, Obj.magic V.sizer) varint63_t
+  (* FIXME: wait for Repr modification to support size in like *)
+
+  type tree = Impl.tree * varint63
+
+  type context = Impl.context * varint63
 
   let direct_op_begin () = Writer.direct_op_begin (get_writer ())
 
