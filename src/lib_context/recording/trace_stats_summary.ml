@@ -332,8 +332,10 @@ type tree = {
   contents_hash : bag_stat;
   contents_find : bag_stat;
   contents_add : bag_stat;
+  contents_mem : bag_stat;
   node_hash : bag_stat;
   node_mem : bag_stat;
+  node_index : bag_stat;
   node_add : bag_stat;
   node_find : bag_stat;
   node_val_v : bag_stat;
@@ -1019,14 +1021,17 @@ let summarise' header block_count ends_with_close (row_seq : Def.row Seq.t) =
   in
 
   let tree_folder =
-    let construct contents_hash contents_find contents_add node_hash node_mem
-        node_add node_find node_val_v node_val_find node_val_list =
+    let construct contents_hash contents_find contents_add contents_mem
+        node_hash node_mem node_index node_add node_find node_val_v
+        node_val_find node_val_list =
       {
         contents_hash;
         contents_find;
         contents_add;
+        contents_mem;
         node_hash;
         node_mem;
+        node_index;
         node_add;
         node_find;
         node_val_v;
@@ -1041,8 +1046,10 @@ let summarise' header block_count ends_with_close (row_seq : Def.row Seq.t) =
       |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.contents_hash)
       |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.contents_find)
       |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.contents_add)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.contents_mem)
       |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.node_hash)
       |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.node_mem)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.node_index)
       |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.node_add)
       |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.node_find)
       |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.node_val_v)

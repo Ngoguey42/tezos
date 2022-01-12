@@ -577,8 +577,10 @@ module Table2 = struct
         pb "tree.contents_hash" (fun s -> s.tree.contents_hash);
         pb "tree.contents_find" (fun s -> s.tree.contents_find);
         pb "tree.contents_add" (fun s -> s.tree.contents_add);
+        pb "tree.contents_mem" (fun s -> s.tree.contents_mem);
         pb "tree.node_hash" (fun s -> s.tree.node_hash);
         pb "tree.node_mem" (fun s -> s.tree.node_mem);
+        pb "tree.node_index" (fun s -> s.tree.node_index);
         pb "tree.node_add" (fun s -> s.tree.node_add);
         pb "tree.node_find" (fun s -> s.tree.node_find);
         pb "tree.node_val_v" (fun s -> s.tree.node_val_v);
@@ -1120,8 +1122,10 @@ module Table4 = struct
         pb "tree.contents_hash per block *LA" (fun s -> s.tree.contents_hash);
         pb "tree.contents_find per block *LA" (fun s -> s.tree.contents_find);
         pb "tree.contents_add per block *LA" (fun s -> s.tree.contents_add);
+        pb "tree.contents_mem per block *LA" (fun s -> s.tree.contents_mem);
         pb "tree.node_hash per block *LA" (fun s -> s.tree.node_hash);
         pb "tree.node_mem per block *LA" (fun s -> s.tree.node_mem);
+        pb "tree.node_index per block *LA" (fun s -> s.tree.node_index);
         pb "tree.node_add per block *LA" (fun s -> s.tree.node_add);
         pb "tree.node_find per block *LA" (fun s -> s.tree.node_find);
         pb "tree.node_val_v per block *LA" (fun s -> s.tree.node_val_v);

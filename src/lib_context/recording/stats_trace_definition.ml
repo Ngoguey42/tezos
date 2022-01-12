@@ -60,8 +60,10 @@ module V0 = struct
     contents_hash : int;
     contents_find : int;
     contents_add : int;
+    contents_mem : int;
     node_hash : int;
     node_mem : int;
+    node_index : int;
     node_add : int;
     node_find : int;
     node_val_v : int;

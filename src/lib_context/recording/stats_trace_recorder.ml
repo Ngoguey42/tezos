@@ -100,12 +100,13 @@ module Writer (Impl : Tezos_context_sigs.Context.S) = struct
       let v = Impl.module_tree_stats () in
       Def.
         {
-          (* TODO: maiste *)
           contents_hash = v.contents_hash;
           contents_find = v.contents_find;
           contents_add = v.contents_add;
+          contents_mem = v.contents_mem;
           node_hash = v.node_hash;
           node_mem = v.node_mem;
+          node_index = v.node_index;
           node_add = v.node_add;
           node_find = v.node_find;
           node_val_v = v.node_val_v;
