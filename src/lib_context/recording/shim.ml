@@ -706,13 +706,12 @@ module Make
     record_unhandled "dump_context"
     @@ Impl.dump_context (Index_abstract.unwrap x) y ~fd
 
-  let check_protocol_commit_consistency x ~expected_context_hash
+  let check_protocol_commit_consistency ~expected_context_hash
       ~given_protocol_hash ~author ~message ~timestamp ~test_chain_status
       ~predecessor_block_metadata_hash ~predecessor_ops_metadata_hash
       ~data_merkle_root ~parents_contexts =
     record_unhandled "check_protocol_commit_consistency"
     @@ Impl.check_protocol_commit_consistency
-         (Index_abstract.unwrap x)
          ~expected_context_hash
          ~given_protocol_hash
          ~author

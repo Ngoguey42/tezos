@@ -390,7 +390,6 @@ module type S = sig
     Lwt.t
 
   val check_protocol_commit_consistency :
-    index ->
     expected_context_hash:Context_hash.t ->
     given_protocol_hash:Protocol_hash.t ->
     author:string ->
