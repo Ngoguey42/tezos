@@ -99,6 +99,12 @@ let list path =
          Seq.iter (Fmt.pr "%a\n" (Repr.pp Rawdef.row_t)) row_seq) ;
   Fmt.pr "%!"
 
+let classify path =
+  match Rawdef.type_of_file path with
+  | `Ro -> Fmt.pr "This file is of type RO.\n"
+  | `Rw -> Fmt.pr "This file is of type RW.\n"
+  | `Misc -> Fmt.pr "This file is of type Misc.\n"
+
 let setup_log =
   Term.(const setup_log $ Fmt_cli.style_renderer () $ Logs_cli.level ())
 
@@ -152,6 +158,13 @@ let term_list =
   in
   Term.(const list $ stats_trace_file)
 
+let term_classify =
+  let stats_trace_file =
+    let doc = Arg.info ~docv:"FILE" ~doc:"A raw actions trace file" [] in
+    Arg.(required @@ pos 0 (some string) None doc)
+  in
+  Term.(const classify $ stats_trace_file)
+
 let () =
   let man = [] in
   let i = Term.info ~man ~doc:"Processing of actions traces." "actions" in
@@ -181,7 +194,15 @@ let () =
   let man = [`P "List the operations from a raw actions trace (directory)."] in
   let l = Term.info ~man ~doc:"List Raw Actions" "list" in
 
+  let man = [`P "Expose the type (RO, RW or Misc) of a raw trace."] in
+  let m = Term.info ~man ~doc:"Check raw trace type" "classify" in
+
   Term.exit
   @@ Term.eval_choice
        (term_summarise, i)
-       [(term_summarise, j); (term_to_rep, k); (term_list, l)]
+       [
+         (term_summarise, j);
+         (term_to_rep, k);
+         (term_list, l);
+         (term_classify, m);
+       ]
