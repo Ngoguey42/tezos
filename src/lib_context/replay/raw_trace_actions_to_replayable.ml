@@ -703,7 +703,7 @@ module Pass0 = struct
 
     type t = block_summary list
 
-    let rec look_for_block_start acc (idx, row) =
+    let rec look_for_block_start_of_raw acc (idx, row) =
       let open Def0 in
       let events_since_commit = acc.events_since_commit + 1 in
       match row with
@@ -718,7 +718,19 @@ module Pass0 = struct
           else
             Fmt.failwith
               "Two inits were found in the trace. It should not be possible."
+      | row ->
+          Fmt.failwith
+            "Unexpected op at the beginning of a block for the row start: %a"
+            (Repr.pp Def0.row_t)
+            row
+
+    and look_for_block_start acc (idx, row) =
+      let open Def0 in
+      let events_since_commit = acc.events_since_commit + 1 in
+      match row with
       | Checkout ((h, Some _), _) | Checkout_exn ((h, Ok _), _) ->
+          {acc with ingest_row = look_for_commit idx h; events_since_commit}
+      | Get_protocol (_, h) ->
           {acc with ingest_row = look_for_commit idx h; events_since_commit}
       | row ->
           Fmt.failwith
@@ -826,7 +838,7 @@ module Pass0 = struct
     let folder =
       let acc0 =
         {
-          ingest_row = look_for_block_start;
+          ingest_row = look_for_block_start_of_raw;
           summary_per_block_rev = [];
           events_since_commit = 0;
           should_init = `Absent;
