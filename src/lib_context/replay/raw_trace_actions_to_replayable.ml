@@ -724,20 +724,6 @@ module Pass0 = struct
             (Repr.pp Def0.row_t)
             row
 
-    and look_for_block_start acc (idx, row) =
-      let open Def0 in
-      let events_since_commit = acc.events_since_commit + 1 in
-      match row with
-      | Checkout ((h, Some _), _) | Checkout_exn ((h, Ok _), _) ->
-          {acc with ingest_row = look_for_commit idx h; events_since_commit}
-      | Get_protocol (_, h) ->
-          {acc with ingest_row = look_for_commit idx h; events_since_commit}
-      | row ->
-          Fmt.failwith
-            "Unexpected op at the beginning of a block: %a"
-            (Repr.pp Def0.row_t)
-            row
-
     and look_after_init first_row_idx acc (_, row) =
       let open Def0 in
       let events_since_commit = acc.events_since_commit + 1 in
@@ -745,7 +731,7 @@ module Pass0 = struct
       | (_, (Checkout ((h, Some _), _) | Checkout_exn ((h, Ok _), _))) ->
           {
             acc with
-            ingest_row = look_for_commit first_row_idx h;
+            ingest_row = look_for_commit (Some first_row_idx) (Some h);
             events_since_commit;
           }
       | ({rank = `Use; _}, _) ->
@@ -789,7 +775,7 @@ module Pass0 = struct
           in
           {
             events_since_commit = 0;
-            ingest_row = look_for_block_start;
+            ingest_row = look_for_commit None None;
             summary_per_block_rev = block :: acc.summary_per_block_rev;
             should_init = acc.should_init;
           }
@@ -808,21 +794,53 @@ module Pass0 = struct
       let events_since_commit = acc.events_since_commit + 1 in
       match (event_infos row, row) with
       | ({rank = `Ignore; _}, _) -> acc
+      | (_, (Checkout ((h, Some _), _) | Checkout_exn ((h, Ok _), _))) ->
+          {
+            acc with
+            ingest_row = look_for_commit (Some idx) (Some h);
+            events_since_commit;
+          }
+      | (_, Get_protocol (_, h)) ->
+          {
+            acc with
+            ingest_row = look_for_commit (Some idx) (Some h);
+            events_since_commit;
+          }
+      | ({rank = `Use; _}, _) ->
+          {acc with events_since_commit; ingest_row = look_for_commit None None}
       | (_, Commit (((_, m, _), h), _)) ->
           let lvl = Option.map level_of_commit_message m in
+          let first_row_idx =
+            match first_row_idx with
+            | None ->
+                Fmt.failwith
+                  "Unexpected empty first_row_idx during a commit: %a"
+                  (Repr.pp Def0.row_t)
+                  row
+            | Some idx -> idx
+          in
+          let checkout_hash =
+            match checkout_hash with
+            | None ->
+                Fmt.failwith
+                  "Unexpected empty checkout hash during a commit: %a"
+                  (Repr.pp Def0.row_t)
+                  row
+            | checkout_hash -> checkout_hash
+          in
           let block =
             {
               first_row_idx;
               last_row_idx = idx;
               level = lvl;
-              checkout_hash = Some checkout_hash;
+              checkout_hash;
               commit_hash = h;
               uses_patch_context = false;
             }
           in
           {
             events_since_commit = 0;
-            ingest_row = look_for_block_start;
+            ingest_row = look_for_commit None None;
             summary_per_block_rev = block :: acc.summary_per_block_rev;
             should_init = acc.should_init;
           }
@@ -833,7 +851,6 @@ module Pass0 = struct
             "Can't handle the following raw event: %a"
             (Repr.pp Def0.row_t)
             row
-      | ({rank = `Use; _}, _) -> {acc with events_since_commit}
 
     let folder =
       let acc0 =
