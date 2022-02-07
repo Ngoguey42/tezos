@@ -6,9 +6,9 @@
             tezos-stdlib-unix
             tezos-context.encoding
             tezos-context.sigs
-	    repr
+            repr
             irmin
-	    rusage bentov printbox printbox.unicode)
+            rusage bentov printbox printbox-text)
 (preprocess
   (pps ppx_repr ppx_deriving.enum))
 (modules
