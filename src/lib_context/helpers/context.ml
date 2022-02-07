@@ -201,13 +201,7 @@ module Make_tree (Store : DB) = struct
             raise (Context_dangling_hash str)
         | exn -> raise exn)
 
-  let length t k =
-    find_tree t k >>= function
-    | None -> Lwt.return_none
-    | Some t -> (
-        match destruct t with
-        | `Contents _ -> Lwt.return_none
-        | `Node n -> length n >|= fun i -> Some i)
+  let length t k = length t k >|= fun i -> Some i
 
   let stats = stats ~force:false
 end
