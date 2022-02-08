@@ -37,7 +37,9 @@
     trick: [module type OPERATIONS = S with type 'a output := 'a],
     [module type RECORDER = S with type 'a output := 'a -> unit]. *)
 
-(** All the cases that are not handled by a recorder. *)
+(** All the cases that are not handled by a recorder.
+
+    WARNING: Do not ever remove tag from this list, only add new ones. *)
 type unhandled =
   | Tree_shallow
   | Tree_to_raw
