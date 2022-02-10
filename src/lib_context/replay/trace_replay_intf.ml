@@ -34,6 +34,7 @@ type config = {
   empty_blobs : bool;
   stats_trace_message : string option;
   no_pp_summary : bool;
+  indexing_strategy : [`Always | `Minimal | `Contents];
 }
 
 module type Config = sig

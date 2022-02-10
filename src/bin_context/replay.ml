@@ -26,11 +26,19 @@
 open Cmdliner
 module Trace_replay = Tezos_context_replay.Trace_replay
 
-let main block_count startup_store_type replayable_trace_path artefacts_dir
-    keep_store keep_stats_trace no_summary empty_blobs stats_trace_message
-    no_pp_summary =
+type indexing_strategy = Always | Minimal | Contents
+
+let main indexing_strategy block_count startup_store_type replayable_trace_path
+    artefacts_dir keep_store keep_stats_trace no_summary empty_blobs
+    stats_trace_message no_pp_summary =
   let startup_store_type =
     match startup_store_type with None -> `Fresh | Some v -> `Copy_from v
+  in
+  let indexing_strategy =
+    match indexing_strategy with
+    | Always -> `Always
+    | Minimal -> `Minimal
+    | Contents -> `Contents
   in
   let module Replay =
     Trace_replay.Make
@@ -48,10 +56,21 @@ let main block_count startup_store_type replayable_trace_path artefacts_dir
             empty_blobs;
             stats_trace_message;
             no_pp_summary;
+            indexing_strategy;
           }
       end)
   in
   Replay.run ()
+
+let indexing_strategy =
+  let doc = "Specify the indexing_strategy to run when doing the replay." in
+  let strategy =
+    Arg.enum [("always", Always); ("minimal", Minimal); ("contents", Contents)]
+  in
+  Arg.(
+    required
+    & opt (some strategy) (Some Minimal)
+    & info ["s"; "indexing-strategy"] ~doc)
 
 let block_count =
   let doc =
@@ -154,9 +173,9 @@ let no_pp_summary =
 
 let main_t =
   Term.(
-    const main $ block_count $ startup_store_type $ replayable_trace_path
-    $ artefacts_dir $ keep_store $ keep_stats_trace $ no_summary $ empty_blobs
-    $ stats_trace_message $ no_pp_summary)
+    const main $ indexing_strategy $ block_count $ startup_store_type
+    $ replayable_trace_path $ artefacts_dir $ keep_store $ keep_stats_trace
+    $ no_summary $ empty_blobs $ stats_trace_message $ no_pp_summary)
 
 let () =
   let info =

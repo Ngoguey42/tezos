@@ -642,7 +642,13 @@ struct
       if row.uses_patch_context then Some patch_context else None
     in
     let store_dir = Filename.concat rs.config.artefacts_dir "store" in
-    let* index = Context.init ~readonly ?patch_context store_dir in
+    let* index =
+      Context.init
+        ~indexing_strategy:Raw_config.v.indexing_strategy
+        ~readonly
+        ?patch_context
+        store_dir
+    in
     let rs =
       {
         index;

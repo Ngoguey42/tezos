@@ -263,18 +263,18 @@ type tree_stats = Tree.tree_stats = {
 }
 
 type module_tree_stats = Store.Tree.counters = {
-    mutable contents_hash : int;
-    mutable contents_find : int;
-    mutable contents_add : int;
-    mutable contents_mem : int;
-    mutable node_hash : int;
-    mutable node_mem : int;
-    mutable node_index : int;
-    mutable node_add : int;
-    mutable node_find : int;
-    mutable node_val_v : int;
-    mutable node_val_find : int;
-    mutable node_val_list : int;
+  mutable contents_hash : int;
+  mutable contents_find : int;
+  mutable contents_add : int;
+  mutable contents_mem : int;
+  mutable node_hash : int;
+  mutable node_mem : int;
+  mutable node_index : int;
+  mutable node_add : int;
+  mutable node_find : int;
+  mutable node_val_v : int;
+  mutable node_val_find : int;
+  mutable node_val_list : int;
 }
 
 let mem ctxt key = Tree.mem ctxt.tree (data_key key)
@@ -535,7 +535,10 @@ let init ?patch_context ?(readonly = false) ?(indexing_strategy = `Minimal) root
   let index_log_size = Option.value ~default:2_500_000 Env.(v.index_log_size) in
   let indexing_strategy =
     let module I = Irmin_pack.Pack_store.Indexing_strategy in
-    match indexing_strategy with `Minimal -> I.minimal | `Always -> I.always
+    match indexing_strategy with
+    | `Minimal -> I.minimal
+    | `Always -> I.always
+    | `Contents -> I.minimal_with_contents
   in
   Store.Repo.v
     (Irmin_pack.config ~readonly ~index_log_size ~indexing_strategy root)
